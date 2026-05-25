@@ -39,6 +39,9 @@ yarn-error.log*
 # local dev data
 /data
 
+# don't commit hand-off docs that contain personal context
+NEXT_SESSION.md
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
