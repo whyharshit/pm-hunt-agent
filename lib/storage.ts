@@ -1,54 +1,52 @@
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
+import { Redis } from '@upstash/redis';
 import type { Job } from './types';
 
-// Dev: file-based dedupe at ./data/seen.json.
-// Prod: we'll swap to Google Sheets or Upstash KV later.
-
-const DATA_DIR = path.join(process.cwd(), 'data');
-const SEEN_FILE = path.join(DATA_DIR, 'seen.json');
-const JOBS_FILE = path.join(DATA_DIR, 'jobs.json');
-
-type SeenIndex = { ids: string[] };
-type JobsIndex = { jobs: Job[] };
-
-async function ensureDir(): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
+let _redis: Redis | null = null;
+function redis(): Redis {
+  if (_redis) return _redis;
+  const url = process.env.KV_REST_API_URL;
+  const token = process.env.KV_REST_API_TOKEN;
+  if (!url || !token) throw new Error('Upstash KV env vars missing (KV_REST_API_URL, KV_REST_API_TOKEN)');
+  _redis = new Redis({ url, token });
+  return _redis;
 }
 
-async function readJson<T>(file: string, fallback: T): Promise<T> {
-  try {
-    const raw = await fs.readFile(file, 'utf8');
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
+const SEEN_KEY = 'seen:ids';
+const JOBS_INDEX = 'jobs:index';
+const jobKey = (id: string) => `job:${id}`;
 
 export async function getSeenIds(): Promise<Set<string>> {
-  const idx = await readJson<SeenIndex>(SEEN_FILE, { ids: [] });
-  return new Set(idx.ids);
+  const ids = await redis().smembers(SEEN_KEY);
+  return new Set(ids as string[]);
 }
 
 export async function markSeen(ids: string[]): Promise<void> {
-  await ensureDir();
-  const idx = await readJson<SeenIndex>(SEEN_FILE, { ids: [] });
-  const merged = Array.from(new Set([...idx.ids, ...ids])).slice(-5000);
-  await fs.writeFile(SEEN_FILE, JSON.stringify({ ids: merged }, null, 2));
+  if (ids.length === 0) return;
+  await redis().sadd(SEEN_KEY, ids[0], ...ids.slice(1));
 }
 
 export async function saveJobs(jobs: Job[]): Promise<void> {
-  await ensureDir();
-  const idx = await readJson<JobsIndex>(JOBS_FILE, { jobs: [] });
-  const byId = new Map<string, Job>(idx.jobs.map((j) => [j.id, j]));
-  for (const j of jobs) byId.set(j.id, j);
-  const all = Array.from(byId.values())
-    .sort((a, b) => +new Date(b.postedAt) - +new Date(a.postedAt))
-    .slice(0, 5000);
-  await fs.writeFile(JOBS_FILE, JSON.stringify({ jobs: all }, null, 2));
+  if (jobs.length === 0) return;
+  const pipe = redis().pipeline();
+  for (const j of jobs) {
+    const score = +new Date(j.postedAt);
+    pipe.set(jobKey(j.id), JSON.stringify(j));
+    pipe.zadd(JOBS_INDEX, { score, member: j.id });
+  }
+  await pipe.exec();
 }
 
 export async function getRecentJobs(limit = 50): Promise<Job[]> {
-  const idx = await readJson<JobsIndex>(JOBS_FILE, { jobs: [] });
-  return idx.jobs.slice(0, limit);
+  const ids = (await redis().zrange(JOBS_INDEX, 0, limit - 1, { rev: true })) as string[];
+  if (ids.length === 0) return [];
+  const pipe = redis().pipeline();
+  for (const id of ids) pipe.get(jobKey(id));
+  const raws = (await pipe.exec()) as (string | Job | null)[];
+  const jobs: Job[] = [];
+  for (const raw of raws) {
+    if (!raw) continue;
+    const j = typeof raw === 'string' ? (JSON.parse(raw) as Job) : raw;
+    jobs.push(j);
+  }
+  return jobs;
 }
