@@ -1,5 +1,6 @@
 import { Redis } from '@upstash/redis';
-import type { Job } from './types';
+import { createHash } from 'node:crypto';
+import type { Job, TrackedUrl } from './types';
 
 let _redis: Redis | null = null;
 function redis(): Redis {
@@ -13,7 +14,13 @@ function redis(): Redis {
 
 const SEEN_KEY = 'seen:ids';
 const JOBS_INDEX = 'jobs:index';
+const TRACKER_INDEX = 'tracker:index';
 const jobKey = (id: string) => `job:${id}`;
+const trackerKey = (id: string) => `tracker:${id}`;
+
+export function urlId(url: string): string {
+  return createHash('sha1').update(url).digest('hex').slice(0, 16);
+}
 
 export async function getSeenIds(): Promise<Set<string>> {
   const ids = await redis().smembers(SEEN_KEY);
@@ -49,4 +56,32 @@ export async function getRecentJobs(limit = 50): Promise<Job[]> {
     jobs.push(j);
   }
   return jobs;
+}
+
+export async function getTracked(id: string): Promise<TrackedUrl | null> {
+  const raw = await redis().get(trackerKey(id));
+  if (!raw) return null;
+  return typeof raw === 'string' ? (JSON.parse(raw) as TrackedUrl) : (raw as TrackedUrl);
+}
+
+export async function saveTracked(t: TrackedUrl): Promise<void> {
+  const score = +new Date(t.addedAt);
+  const pipe = redis().pipeline();
+  pipe.set(trackerKey(t.id), JSON.stringify(t));
+  pipe.zadd(TRACKER_INDEX, { score, member: t.id });
+  await pipe.exec();
+}
+
+export async function getRecentTracked(limit = 50): Promise<TrackedUrl[]> {
+  const ids = (await redis().zrange(TRACKER_INDEX, 0, limit - 1, { rev: true })) as string[];
+  if (ids.length === 0) return [];
+  const pipe = redis().pipeline();
+  for (const id of ids) pipe.get(trackerKey(id));
+  const raws = (await pipe.exec()) as (string | TrackedUrl | null)[];
+  const out: TrackedUrl[] = [];
+  for (const raw of raws) {
+    if (!raw) continue;
+    out.push(typeof raw === 'string' ? (JSON.parse(raw) as TrackedUrl) : raw);
+  }
+  return out;
 }

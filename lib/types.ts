@@ -11,3 +11,17 @@ export type Job = {
   description?: string;
   salary?: string;
 };
+
+import type { Tier } from './classify';
+
+export type TrackedUrl = {
+  id: string;
+  url: string;
+  tier: Tier;
+  source: 'telegram';
+  addedAt: string;
+  status: 'new' | 'drafted' | 'submitted' | 'rejected' | 'skipped';
+  note?: string;
+  company?: string;
+  role?: string;
+};
