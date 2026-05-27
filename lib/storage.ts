@@ -72,6 +72,17 @@ export async function saveTracked(t: TrackedUrl): Promise<void> {
   await pipe.exec();
 }
 
+export async function updateTracked(
+  id: string,
+  patch: Partial<Pick<TrackedUrl, 'status' | 'note' | 'company' | 'role'>>
+): Promise<TrackedUrl | null> {
+  const existing = await getTracked(id);
+  if (!existing) return null;
+  const next = { ...existing, ...patch };
+  await redis().set(trackerKey(id), JSON.stringify(next));
+  return next;
+}
+
 export async function getRecentTracked(limit = 50): Promise<TrackedUrl[]> {
   const ids = (await redis().zrange(TRACKER_INDEX, 0, limit - 1, { rev: true })) as string[];
   if (ids.length === 0) return [];
