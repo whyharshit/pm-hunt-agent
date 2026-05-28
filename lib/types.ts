@@ -52,3 +52,10 @@ export type TailoredResume = {
   model: string;
   jdScrapedAt: string;
 };
+
+export type StoredPdf = {
+  base64: string;
+  size: number;
+  generatedAt: string;
+  tailoredAt: string | null;
+};
