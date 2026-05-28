@@ -1,6 +1,6 @@
 import { Redis } from '@upstash/redis';
 import { createHash } from 'node:crypto';
-import type { Job, ScrapedJd, StoredPdf, TailoredResume, TrackedUrl } from './types';
+import type { Blurb, Job, ScrapedJd, StoredPdf, TailoredResume, TrackedUrl } from './types';
 
 let _redis: Redis | null = null;
 function redis(): Redis {
@@ -20,6 +20,7 @@ const trackerKey = (id: string) => `tracker:${id}`;
 const jdKey = (id: string) => `jd:${id}`;
 const tailoredKey = (id: string) => `tailored:${id}`;
 const pdfKey = (id: string) => `pdf:${id}`;
+const blurbKey = (id: string) => `blurb:${id}`;
 
 export function urlId(url: string): string {
   return createHash('sha1').update(url).digest('hex').slice(0, 16);
@@ -114,6 +115,16 @@ export async function getPdf(id: string): Promise<StoredPdf | null> {
 
 export async function savePdf(id: string, pdf: StoredPdf): Promise<void> {
   await redis().set(pdfKey(id), JSON.stringify(pdf));
+}
+
+export async function getBlurb(id: string): Promise<Blurb | null> {
+  const raw = await redis().get(blurbKey(id));
+  if (!raw) return null;
+  return typeof raw === 'string' ? (JSON.parse(raw) as Blurb) : (raw as Blurb);
+}
+
+export async function saveBlurb(id: string, b: Blurb): Promise<void> {
+  await redis().set(blurbKey(id), JSON.stringify(b));
 }
 
 export async function getRecentTracked(limit = 50): Promise<TrackedUrl[]> {

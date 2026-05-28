@@ -59,3 +59,12 @@ export type StoredPdf = {
   generatedAt: string;
   tailoredAt: string | null;
 };
+
+export type Blurb = {
+  trackerId: string;
+  text: string;
+  reference: string;
+  generatedAt: string;
+  model: string;
+  jdScrapedAt: string;
+};
