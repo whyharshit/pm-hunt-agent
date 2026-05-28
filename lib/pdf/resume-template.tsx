@@ -13,6 +13,7 @@ type ResumeShape = {
   phone?: string;
   location?: string;
   links?: Record<string, string>;
+  summary?: string;
   education: Education[];
   experience: Array<{
     role: string;
@@ -138,7 +139,7 @@ export function ResumeDocument({
   resume: ResumeShape;
   tailored?: TailoredOverride;
 }) {
-  const summary = tailored?.summary ?? '';
+  const summary = tailored?.summary ?? resume.summary ?? '';
 
   const experience = resume.experience.map((e, i) => {
     const overrideBullets = tailored?.experience[i]?.bullets;
