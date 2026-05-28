@@ -1,6 +1,6 @@
 import { Redis } from '@upstash/redis';
 import { createHash } from 'node:crypto';
-import type { Job, TrackedUrl } from './types';
+import type { Job, ScrapedJd, TailoredResume, TrackedUrl } from './types';
 
 let _redis: Redis | null = null;
 function redis(): Redis {
@@ -17,6 +17,8 @@ const JOBS_INDEX = 'jobs:index';
 const TRACKER_INDEX = 'tracker:index';
 const jobKey = (id: string) => `job:${id}`;
 const trackerKey = (id: string) => `tracker:${id}`;
+const jdKey = (id: string) => `jd:${id}`;
+const tailoredKey = (id: string) => `tailored:${id}`;
 
 export function urlId(url: string): string {
   return createHash('sha1').update(url).digest('hex').slice(0, 16);
@@ -81,6 +83,26 @@ export async function updateTracked(
   const next = { ...existing, ...patch };
   await redis().set(trackerKey(id), JSON.stringify(next));
   return next;
+}
+
+export async function getJd(id: string): Promise<ScrapedJd | null> {
+  const raw = await redis().get(jdKey(id));
+  if (!raw) return null;
+  return typeof raw === 'string' ? (JSON.parse(raw) as ScrapedJd) : (raw as ScrapedJd);
+}
+
+export async function saveJd(id: string, jd: ScrapedJd): Promise<void> {
+  await redis().set(jdKey(id), JSON.stringify(jd));
+}
+
+export async function getTailored(id: string): Promise<TailoredResume | null> {
+  const raw = await redis().get(tailoredKey(id));
+  if (!raw) return null;
+  return typeof raw === 'string' ? (JSON.parse(raw) as TailoredResume) : (raw as TailoredResume);
+}
+
+export async function saveTailored(id: string, t: TailoredResume): Promise<void> {
+  await redis().set(tailoredKey(id), JSON.stringify(t));
 }
 
 export async function getRecentTracked(limit = 50): Promise<TrackedUrl[]> {

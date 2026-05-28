@@ -25,3 +25,30 @@ export type TrackedUrl = {
   company?: string;
   role?: string;
 };
+
+export type JdSource = 'lever' | 'greenhouse' | 'ashby' | 'workable' | 'jsonld' | 'generic';
+
+export type ScrapedJd = {
+  text: string;
+  title?: string;
+  company?: string;
+  role?: string;
+  source: JdSource;
+  scrapedAt: string;
+  url: string;
+};
+
+export type TailoredExperience = {
+  role: string;
+  company: string;
+  bullets: string[];
+};
+
+export type TailoredResume = {
+  trackerId: string;
+  summary: string;
+  experience: TailoredExperience[];
+  generatedAt: string;
+  model: string;
+  jdScrapedAt: string;
+};
