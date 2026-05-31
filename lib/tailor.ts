@@ -134,6 +134,12 @@ function validateShape(
   return { summary: obj.summary, experience };
 }
 
+// Gemini occasionally drifts on bullet/role counts despite the schema, and
+// validateShape hard-throws on that drift. Retry with the drift fed back and
+// the temperature tightened rather than failing the whole tailor pipeline on a
+// single malformed draft. Mirrors the retry loop in lib/blurb.ts.
+const MAX_ATTEMPTS = 3;
+
 export async function tailorResume(
   trackerId: string,
   jd: ScrapedJd
@@ -142,35 +148,59 @@ export async function tailorResume(
   if (!apiKey) throw new Error('GEMINI_API_KEY not set');
 
   const ai = new GoogleGenAI({ apiKey });
-  const response = await ai.models.generateContent({
-    model: MODEL,
-    contents: buildPrompt(jd),
-    config: {
-      systemInstruction: SYSTEM,
-      responseMimeType: 'application/json',
-      responseSchema,
-      temperature: 0.4,
-    },
-  });
+  const basePrompt = buildPrompt(jd);
+  let lastError = '';
 
-  const text = response.text;
-  if (!text) throw new Error('Gemini returned empty response');
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    // First try keeps the default temperature; retries tighten it and append
+    // the prior shape error as explicit feedback so the model can self-correct.
+    const contents =
+      attempt === 1
+        ? basePrompt
+        : `${basePrompt}\n\n---\n\nYour previous attempt was rejected: ${lastError}. You MUST return exactly the same roles, companies, and bullet counts as the input resume — do not add, drop, merge, or split bullets.`;
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch (e) {
-    throw new Error(`Gemini returned invalid JSON: ${(e as Error).message}`);
+    const response = await ai.models.generateContent({
+      model: MODEL,
+      contents,
+      config: {
+        systemInstruction: SYSTEM,
+        responseMimeType: 'application/json',
+        responseSchema,
+        temperature: attempt === 1 ? 0.4 : 0.2,
+      },
+    });
+
+    const text = response.text;
+    if (!text) {
+      lastError = 'Gemini returned empty response';
+      continue;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch (e) {
+      lastError = `Gemini returned invalid JSON: ${(e as Error).message}`;
+      continue;
+    }
+
+    let validated: ReturnType<typeof validateShape>;
+    try {
+      validated = validateShape(parsed);
+    } catch (e) {
+      lastError = (e as Error).message;
+      continue;
+    }
+
+    return {
+      trackerId,
+      summary: validated.summary,
+      experience: validated.experience,
+      generatedAt: new Date().toISOString(),
+      model: MODEL,
+      jdScrapedAt: jd.scrapedAt,
+    };
   }
 
-  const { summary, experience } = validateShape(parsed);
-
-  return {
-    trackerId,
-    summary,
-    experience,
-    generatedAt: new Date().toISOString(),
-    model: MODEL,
-    jdScrapedAt: jd.scrapedAt,
-  };
+  throw new Error(`tailor failed after ${MAX_ATTEMPTS} attempts: ${lastError}`);
 }
