@@ -1,9 +1,12 @@
-import { getRecentJobs, getRecentTracked, getTrackedArtifacts } from '@/lib/storage';
+import { getAgentRuns, getRecentJobs, getRecentTracked, getTrackedArtifacts } from '@/lib/storage';
 import type { TrackedArtifacts } from '@/lib/storage';
 import { TIER_EMOJI } from '@/lib/classify';
+import { LIVE_AGENT_IDS } from '@/lib/agents';
 import { setTrackedStatus, tailorTracked } from '@/lib/actions';
+import { fmtDate, hostOf } from '@/lib/format';
+import { AgentsPanel } from './agents-panel';
 import { CopyButton } from './copy-button';
-import type { TrackedUrl } from '@/lib/types';
+import type { AgentRun, TrackedUrl } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -19,54 +22,37 @@ const STATUS_CLASS: Record<TrackedUrl['status'], string> = {
   skipped: 'bg-zinc-100 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-500',
 };
 
-function fmtDate(iso: string | Date): string {
-  const d = typeof iso === 'string' ? new Date(iso) : iso;
-  const now = new Date();
-  const diffMs = +now - +d;
-  const min = Math.floor(diffMs / 60000);
-  if (min < 1) return 'just now';
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  if (day < 30) return `${day}d ago`;
-  return d.toLocaleDateString();
-}
-
-function hostOf(u: string): string {
-  try {
-    return new URL(u).hostname.replace(/^www\./, '');
-  } catch {
-    return u;
-  }
-}
-
 async function loadData() {
   try {
-    const [tracked, jobs] = await Promise.all([getRecentTracked(50), getRecentJobs(50)]);
+    const [tracked, jobs, agentRuns] = await Promise.all([
+      getRecentTracked(50),
+      getRecentJobs(50),
+      getAgentRuns(LIVE_AGENT_IDS),
+    ]);
     const artifacts = await getTrackedArtifacts(tracked.map((t) => t.id));
-    return { tracked, jobs, artifacts, error: null as string | null };
+    return { tracked, jobs, artifacts, agentRuns, error: null as string | null };
   } catch (e) {
     return {
       tracked: [] as TrackedUrl[],
       jobs: [] as Awaited<ReturnType<typeof getRecentJobs>>,
       artifacts: new Map<string, TrackedArtifacts>(),
+      agentRuns: new Map<string, AgentRun>(),
       error: (e as Error).message,
     };
   }
 }
 
 export default async function Home() {
-  const { tracked, jobs, artifacts, error } = await loadData();
+  const { tracked, jobs, artifacts, agentRuns, error } = await loadData();
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-black text-zinc-900 dark:text-zinc-100 font-sans">
       <main className="mx-auto max-w-5xl px-6 py-10 sm:py-14">
         <header className="mb-10 flex items-baseline justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">PM Hunt Agent</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Intern Hunt · Agent Control</h1>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-              Tracked URLs and discovered roles, freshest first.
+              What each agent is fetching, plus tracked URLs and discovered roles.
             </p>
           </div>
           <div className="text-xs text-zinc-400 dark:text-zinc-500 tabular-nums">
@@ -79,6 +65,8 @@ export default async function Home() {
             Couldn&apos;t load data: {error}
           </div>
         )}
+
+        <AgentsPanel runs={agentRuns} />
 
         <section className="mb-12">
           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">

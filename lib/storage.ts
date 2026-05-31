@@ -1,6 +1,6 @@
 import { Redis } from '@upstash/redis';
 import { createHash } from 'node:crypto';
-import type { Blurb, Job, ScrapedJd, StoredPdf, TailoredResume, TrackedUrl } from './types';
+import type { AgentRun, Blurb, Job, ScrapedJd, StoredPdf, TailoredResume, TrackedUrl } from './types';
 
 let _redis: Redis | null = null;
 function redis(): Redis {
@@ -17,6 +17,7 @@ const JOBS_INDEX = 'jobs:index';
 const TRACKER_INDEX = 'tracker:index';
 const jobKey = (id: string) => `job:${id}`;
 const trackerKey = (id: string) => `tracker:${id}`;
+const agentKey = (id: string) => `agent:${id}`;
 const jdKey = (id: string) => `jd:${id}`;
 const tailoredKey = (id: string) => `tailored:${id}`;
 const pdfKey = (id: string) => `pdf:${id}`;
@@ -125,6 +126,47 @@ export async function getBlurb(id: string): Promise<Blurb | null> {
 
 export async function saveBlurb(id: string, b: Blurb): Promise<void> {
   await redis().set(blurbKey(id), JSON.stringify(b));
+}
+
+export async function getAgentRun(id: string): Promise<AgentRun | null> {
+  const raw = await redis().get(agentKey(id));
+  if (!raw) return null;
+  return typeof raw === 'string' ? (JSON.parse(raw) as AgentRun) : (raw as AgentRun);
+}
+
+/** Batch-fetch run-state for the agent cards in one pipeline. */
+export async function getAgentRuns(ids: string[]): Promise<Map<string, AgentRun>> {
+  const out = new Map<string, AgentRun>();
+  if (ids.length === 0) return out;
+  const pipe = redis().pipeline();
+  for (const id of ids) pipe.get(agentKey(id));
+  const raws = (await pipe.exec()) as (string | AgentRun | null)[];
+  ids.forEach((id, i) => {
+    const raw = raws[i];
+    if (!raw) return;
+    out.set(id, typeof raw === 'string' ? (JSON.parse(raw) as AgentRun) : raw);
+  });
+  return out;
+}
+
+export async function setAgentRunning(id: string): Promise<void> {
+  const run: AgentRun = { agentId: id, state: 'running', startedAt: new Date().toISOString() };
+  await redis().set(agentKey(id), JSON.stringify(run));
+}
+
+/** Merge a run result onto the agent's current record and stamp finishedAt. */
+export async function recordAgentRun(
+  id: string,
+  patch: Partial<Omit<AgentRun, 'agentId'>>
+): Promise<void> {
+  const existing = await getAgentRun(id);
+  const next: AgentRun = {
+    ...(existing ?? { agentId: id, state: 'idle' }),
+    ...patch,
+    agentId: id,
+    finishedAt: patch.finishedAt ?? new Date().toISOString(),
+  };
+  await redis().set(agentKey(id), JSON.stringify(next));
 }
 
 export type TrackedArtifacts = { hasPdf: boolean; blurb: Blurb | null };

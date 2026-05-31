@@ -1,5 +1,5 @@
 import { classifyUrl, extractUrls, TIER_EMOJI } from '@/lib/classify';
-import { getTracked, saveTracked, urlId } from '@/lib/storage';
+import { getTracked, recordAgentRun, saveTracked, urlId } from '@/lib/storage';
 import { sendTelegram } from '@/lib/telegram';
 import type { TrackedUrl } from '@/lib/types';
 
@@ -57,6 +57,8 @@ export async function POST(request: Request) {
   }
 
   const lines: string[] = [];
+  let added = 0;
+  let lastTier: TrackedUrl['tier'] | null = null;
   for (const url of urls) {
     const id = urlId(url);
     const existing = await getTracked(id);
@@ -74,8 +76,19 @@ export async function POST(request: Request) {
       status: 'new',
     };
     await saveTracked(t);
+    added += 1;
+    lastTier = tier;
     lines.push(`✅ Added ${TIER_EMOJI[tier]} ${url}`);
   }
+
+  await recordAgentRun('intake', {
+    state: 'ok',
+    summary:
+      added > 0
+        ? `+${added} URL${added > 1 ? 's' : ''}${lastTier ? ` · ${TIER_EMOJI[lastTier]} ${lastTier}` : ''}`
+        : `${urls.length} URL — already tracked`,
+    stats: { received: urls.length, added },
+  });
 
   await sendTelegram(lines.join('\n'), msg.chat.id);
   return ok();

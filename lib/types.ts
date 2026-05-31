@@ -70,3 +70,13 @@ export type Blurb = {
   model: string;
   jdScrapedAt: string;
 };
+
+export type AgentRun = {
+  agentId: string;
+  state: 'idle' | 'running' | 'ok' | 'error';
+  startedAt?: string;
+  finishedAt?: string;
+  summary?: string;
+  stats?: Record<string, number>;
+  error?: string | null;
+};

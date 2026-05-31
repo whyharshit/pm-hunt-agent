@@ -1,10 +1,12 @@
 import {
   getJd,
   getTracked,
+  recordAgentRun,
   saveBlurb,
   saveJd,
   savePdf,
   saveTailored,
+  setAgentRunning,
   updateTracked,
 } from './storage';
 import { scrapeJd, ScrapeError } from './scrape';
@@ -41,6 +43,12 @@ export async function runTailorPipeline(id: string): Promise<PipelineResult> {
     return { ok: false, stage: 'lookup', error: 'green tier — no JD to tailor against' };
   }
 
+  await setAgentRunning('tailorer');
+  const fail = async (stage: PipelineStage, error: string): Promise<PipelineResult> => {
+    await recordAgentRun('tailorer', { state: 'error', summary: `${stage}: ${error}`, error });
+    return { ok: false, stage, error };
+  };
+
   let jd: ScrapedJd;
   try {
     const existing = await getJd(id);
@@ -55,8 +63,7 @@ export async function runTailorPipeline(id: string): Promise<PipelineResult> {
       if (Object.keys(patch).length > 0) await updateTracked(id, patch);
     }
   } catch (e) {
-    const err = e as ScrapeError;
-    return { ok: false, stage: 'scrape', error: err.message };
+    return fail('scrape', (e as ScrapeError).message);
   }
 
   let tailored: TailoredResume;
@@ -64,7 +71,7 @@ export async function runTailorPipeline(id: string): Promise<PipelineResult> {
     tailored = await tailorResume(id, jd);
     await saveTailored(id, tailored);
   } catch (e) {
-    return { ok: false, stage: 'tailor', error: (e as Error).message };
+    return fail('tailor', (e as Error).message);
   }
 
   let pdf: StoredPdf;
@@ -81,7 +88,7 @@ export async function runTailorPipeline(id: string): Promise<PipelineResult> {
     };
     await savePdf(id, pdf);
   } catch (e) {
-    return { ok: false, stage: 'render', error: (e as Error).message };
+    return fail('render', (e as Error).message);
   }
 
   let blurb: Blurb;
@@ -89,8 +96,14 @@ export async function runTailorPipeline(id: string): Promise<PipelineResult> {
     blurb = await writeBlurb(id, jd, tailored);
     await saveBlurb(id, blurb);
   } catch (e) {
-    return { ok: false, stage: 'blurb', error: (e as Error).message };
+    return fail('blurb', (e as Error).message);
   }
 
+  const label = tracked.company || tracked.role || new URL(tracked.url).hostname.replace(/^www\./, '');
+  await recordAgentRun('tailorer', {
+    state: 'ok',
+    summary: `tailored ${label}`,
+    error: null,
+  });
   return { ok: true, tailored, pdf, blurb };
 }
