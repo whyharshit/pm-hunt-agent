@@ -73,6 +73,29 @@ function buildPrompt(jd: ScrapedJd, tailored: TailoredResume | null): string {
     .join('\n');
 }
 
+// Gemini overshoots the 200-char cap at temp 0.7 fairly often. Retry with the
+// overshoot fed back and the temperature tightened rather than failing the
+// whole tailor pipeline on a single long draft.
+const MAX_ATTEMPTS = 3;
+
+function parseBlurb(raw: string | undefined): { text: string; reference: string } {
+  if (!raw) throw new Error('Gemini returned empty response');
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    throw new Error(`Gemini returned invalid JSON: ${(e as Error).message}`);
+  }
+  if (!parsed || typeof parsed !== 'object') throw new Error('non-object response');
+  const obj = parsed as Record<string, unknown>;
+  if (typeof obj.text !== 'string' || typeof obj.reference !== 'string') {
+    throw new Error('missing text/reference fields');
+  }
+  const text = obj.text.trim();
+  if (text.length === 0) throw new Error('empty blurb text');
+  return { text, reference: obj.reference.trim() };
+}
+
 export async function writeBlurb(
   trackerId: string,
   jd: ScrapedJd,
@@ -82,45 +105,50 @@ export async function writeBlurb(
   if (!apiKey) throw new Error('GEMINI_API_KEY not set');
 
   const ai = new GoogleGenAI({ apiKey });
-  const response = await ai.models.generateContent({
-    model: MODEL,
-    contents: buildPrompt(jd, tailored),
-    config: {
-      systemInstruction: SYSTEM,
-      responseMimeType: 'application/json',
-      responseSchema,
-      temperature: 0.7,
-    },
-  });
+  const basePrompt = buildPrompt(jd, tailored);
+  let lastError = '';
 
-  const raw = response.text;
-  if (!raw) throw new Error('Gemini returned empty response');
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    // First try keeps the original temperature for phrasing variety; retries
+    // tighten it and append the prior overshoot as explicit feedback.
+    const contents =
+      attempt === 1
+        ? basePrompt
+        : `${basePrompt}\n\n---\n\nYour previous attempt was rejected: ${lastError}. The text field MUST be ${MAX_CHARS} characters or fewer — count every character and cut words until it fits.`;
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
-    throw new Error(`Gemini returned invalid JSON: ${(e as Error).message}`);
+    const response = await ai.models.generateContent({
+      model: MODEL,
+      contents,
+      config: {
+        systemInstruction: SYSTEM,
+        responseMimeType: 'application/json',
+        responseSchema,
+        temperature: attempt === 1 ? 0.7 : 0.4,
+      },
+    });
+
+    let candidate: { text: string; reference: string };
+    try {
+      candidate = parseBlurb(response.text);
+    } catch (e) {
+      lastError = (e as Error).message;
+      continue;
+    }
+
+    if (candidate.text.length > MAX_CHARS) {
+      lastError = `blurb is ${candidate.text.length} chars, exceeds ${MAX_CHARS}-char cap`;
+      continue;
+    }
+
+    return {
+      trackerId,
+      text: candidate.text,
+      reference: candidate.reference,
+      generatedAt: new Date().toISOString(),
+      model: MODEL,
+      jdScrapedAt: jd.scrapedAt,
+    };
   }
 
-  if (!parsed || typeof parsed !== 'object') throw new Error('non-object response');
-  const obj = parsed as Record<string, unknown>;
-  if (typeof obj.text !== 'string' || typeof obj.reference !== 'string') {
-    throw new Error('missing text/reference fields');
-  }
-  const text = obj.text.trim();
-  const reference = obj.reference.trim();
-  if (text.length === 0) throw new Error('empty blurb text');
-  if (text.length > MAX_CHARS) {
-    throw new Error(`blurb is ${text.length} chars, exceeds ${MAX_CHARS}-char cap`);
-  }
-
-  return {
-    trackerId,
-    text,
-    reference,
-    generatedAt: new Date().toISOString(),
-    model: MODEL,
-    jdScrapedAt: jd.scrapedAt,
-  };
+  throw new Error(`blurb failed after ${MAX_ATTEMPTS} attempts: ${lastError}`);
 }
