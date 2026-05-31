@@ -24,6 +24,8 @@ export type TrackedUrl = {
   note?: string;
   company?: string;
   role?: string;
+  /** Last tailor-pipeline error, surfaced on the dashboard; cleared on success. */
+  tailorError?: string | null;
 };
 
 export type JdSource = 'lever' | 'greenhouse' | 'ashby' | 'workable' | 'jsonld' | 'generic';

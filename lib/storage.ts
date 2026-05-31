@@ -78,7 +78,7 @@ export async function saveTracked(t: TrackedUrl): Promise<void> {
 
 export async function updateTracked(
   id: string,
-  patch: Partial<Pick<TrackedUrl, 'status' | 'note' | 'company' | 'role'>>
+  patch: Partial<Pick<TrackedUrl, 'status' | 'note' | 'company' | 'role' | 'tailorError'>>
 ): Promise<TrackedUrl | null> {
   const existing = await getTracked(id);
   if (!existing) return null;
@@ -125,6 +125,29 @@ export async function getBlurb(id: string): Promise<Blurb | null> {
 
 export async function saveBlurb(id: string, b: Blurb): Promise<void> {
   await redis().set(blurbKey(id), JSON.stringify(b));
+}
+
+export type TrackedArtifacts = { hasPdf: boolean; blurb: Blurb | null };
+
+/** Batch-fetch dashboard artifacts (PDF presence + blurb text) for tracked rows. */
+export async function getTrackedArtifacts(
+  ids: string[]
+): Promise<Map<string, TrackedArtifacts>> {
+  const out = new Map<string, TrackedArtifacts>();
+  if (ids.length === 0) return out;
+  const pipe = redis().pipeline();
+  for (const id of ids) {
+    pipe.exists(pdfKey(id));
+    pipe.get(blurbKey(id));
+  }
+  const res = (await pipe.exec()) as unknown[];
+  ids.forEach((id, i) => {
+    const exists = res[i * 2] as number;
+    const raw = res[i * 2 + 1] as string | Blurb | null;
+    const blurb = raw ? (typeof raw === 'string' ? (JSON.parse(raw) as Blurb) : raw) : null;
+    out.set(id, { hasPdf: exists === 1, blurb });
+  });
+  return out;
 }
 
 export async function getRecentTracked(limit = 50): Promise<TrackedUrl[]> {

@@ -1,10 +1,13 @@
-import { getRecentJobs, getRecentTracked } from '@/lib/storage';
+import { getRecentJobs, getRecentTracked, getTrackedArtifacts } from '@/lib/storage';
+import type { TrackedArtifacts } from '@/lib/storage';
 import { TIER_EMOJI } from '@/lib/classify';
-import { setTrackedStatus } from '@/lib/actions';
+import { setTrackedStatus, tailorTracked } from '@/lib/actions';
+import { CopyButton } from './copy-button';
 import type { TrackedUrl } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+export const maxDuration = 120;
 
 const STATUSES: TrackedUrl['status'][] = ['new', 'drafted', 'submitted', 'rejected', 'skipped'];
 
@@ -41,14 +44,20 @@ function hostOf(u: string): string {
 async function loadData() {
   try {
     const [tracked, jobs] = await Promise.all([getRecentTracked(50), getRecentJobs(50)]);
-    return { tracked, jobs, error: null as string | null };
+    const artifacts = await getTrackedArtifacts(tracked.map((t) => t.id));
+    return { tracked, jobs, artifacts, error: null as string | null };
   } catch (e) {
-    return { tracked: [], jobs: [], error: (e as Error).message };
+    return {
+      tracked: [] as TrackedUrl[],
+      jobs: [] as Awaited<ReturnType<typeof getRecentJobs>>,
+      artifacts: new Map<string, TrackedArtifacts>(),
+      error: (e as Error).message,
+    };
   }
 }
 
 export default async function Home() {
-  const { tracked, jobs, error } = await loadData();
+  const { tracked, jobs, artifacts, error } = await loadData();
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-black text-zinc-900 dark:text-zinc-100 font-sans">
@@ -81,48 +90,93 @@ export default async function Home() {
             </p>
           ) : (
             <ul className="divide-y divide-zinc-200 dark:divide-zinc-800 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
-              {tracked.map((t) => (
-                <li key={t.id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
-                  <span className="text-xl leading-none" title={t.tier}>{TIER_EMOJI[t.tier]}</span>
-                  <div className="min-w-0 flex-1">
-                    <a
-                      href={t.url}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      className="block truncate text-sm font-medium text-zinc-900 hover:underline dark:text-zinc-100"
-                    >
-                      {hostOf(t.url)}
-                      <span className="ml-2 text-xs font-normal text-zinc-500 dark:text-zinc-400">{t.url}</span>
-                    </a>
-                    <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                      added {fmtDate(t.addedAt)}
+              {tracked.map((t) => {
+                const art = artifacts.get(t.id);
+                const canTailor = t.tier !== 'green';
+                return (
+                <li key={t.id} className="flex flex-col gap-2 px-4 py-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+                    <span className="text-xl leading-none" title={t.tier}>{TIER_EMOJI[t.tier]}</span>
+                    <div className="min-w-0 flex-1">
+                      <a
+                        href={t.url}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="block truncate text-sm font-medium text-zinc-900 hover:underline dark:text-zinc-100"
+                      >
+                        {t.role || hostOf(t.url)}
+                        {t.company ? (
+                          <span className="ml-2 text-xs font-normal text-zinc-500 dark:text-zinc-400">{t.company}</span>
+                        ) : (
+                          <span className="ml-2 text-xs font-normal text-zinc-500 dark:text-zinc-400">{t.url}</span>
+                        )}
+                      </a>
+                      <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                        added {fmtDate(t.addedAt)}
+                      </div>
                     </div>
+                    <span
+                      className={`inline-flex h-6 items-center rounded-full px-2 text-xs font-medium ${STATUS_CLASS[t.status]}`}
+                    >
+                      {t.status}
+                    </span>
+                    <form action={setTrackedStatus} className="flex items-center gap-2">
+                      <input type="hidden" name="id" value={t.id} />
+                      <select
+                        name="status"
+                        defaultValue={t.status}
+                        className="h-7 rounded border border-zinc-300 bg-white px-2 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                      >
+                        {STATUSES.map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="submit"
+                        className="h-7 rounded border border-zinc-300 bg-zinc-100 px-2 text-xs font-medium text-zinc-700 hover:bg-zinc-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                      >
+                        Save
+                      </button>
+                    </form>
                   </div>
-                  <span
-                    className={`inline-flex h-6 items-center rounded-full px-2 text-xs font-medium ${STATUS_CLASS[t.status]}`}
-                  >
-                    {t.status}
-                  </span>
-                  <form action={setTrackedStatus} className="flex items-center gap-2">
-                    <input type="hidden" name="id" value={t.id} />
-                    <select
-                      name="status"
-                      defaultValue={t.status}
-                      className="h-7 rounded border border-zinc-300 bg-white px-2 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                    >
-                      {STATUSES.map((s) => (
-                        <option key={s} value={s}>{s}</option>
-                      ))}
-                    </select>
-                    <button
-                      type="submit"
-                      className="h-7 rounded border border-zinc-300 bg-zinc-100 px-2 text-xs font-medium text-zinc-700 hover:bg-zinc-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
-                    >
-                      Save
-                    </button>
-                  </form>
+
+                  {canTailor && (
+                    <div className="flex flex-wrap items-center gap-2 sm:pl-9">
+                      <form action={tailorTracked}>
+                        <input type="hidden" name="id" value={t.id} />
+                        <button
+                          type="submit"
+                          className="h-7 rounded border border-indigo-300 bg-indigo-50 px-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-200 dark:hover:bg-indigo-900"
+                        >
+                          {art?.hasPdf ? 'Re-tailor' : 'Tailor'}
+                        </button>
+                      </form>
+                      {art?.hasPdf && (
+                        <a
+                          href={`/download/${t.id}`}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="inline-flex h-7 items-center rounded border border-zinc-300 bg-white px-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        >
+                          Download PDF
+                        </a>
+                      )}
+                      {art?.blurb && <CopyButton text={art.blurb.text} />}
+                      {art?.blurb && (
+                        <span className="max-w-md truncate text-xs italic text-zinc-500 dark:text-zinc-400" title={art.blurb.text}>
+                          “{art.blurb.text}”
+                        </span>
+                      )}
+                      {t.tailorError && (
+                        <span className="text-xs text-red-600 dark:text-red-400" title={t.tailorError}>
+                          ⚠ {t.tailorError}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </section>
