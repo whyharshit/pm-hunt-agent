@@ -1,6 +1,16 @@
 import { Redis } from '@upstash/redis';
 import { createHash } from 'node:crypto';
-import type { AgentRun, Blurb, Job, ScrapedJd, StoredPdf, TailoredResume, TrackedUrl } from './types';
+import type {
+  AgentRun,
+  Blurb,
+  FundingItem,
+  FundingOutreach,
+  Job,
+  ScrapedJd,
+  StoredPdf,
+  TailoredResume,
+  TrackedUrl,
+} from './types';
 
 let _redis: Redis | null = null;
 function redis(): Redis {
@@ -15,8 +25,12 @@ function redis(): Redis {
 const SEEN_KEY = 'seen:ids';
 const JOBS_INDEX = 'jobs:index';
 const TRACKER_INDEX = 'tracker:index';
+const FUNDING_INDEX = 'funding:index';
+const FUNDING_SEEN = 'funding:seen';
 const jobKey = (id: string) => `job:${id}`;
 const trackerKey = (id: string) => `tracker:${id}`;
+const fundingKey = (id: string) => `funding:${id}`;
+const fundingOutreachKey = (id: string) => `funding-outreach:${id}`;
 const agentKey = (id: string) => `agent:${id}`;
 const jdKey = (id: string) => `jd:${id}`;
 const tailoredKey = (id: string) => `tailored:${id}`;
@@ -167,6 +181,77 @@ export async function recordAgentRun(
     finishedAt: patch.finishedAt ?? new Date().toISOString(),
   };
   await redis().set(agentKey(id), JSON.stringify(next));
+}
+
+export async function getFundingSeen(): Promise<Set<string>> {
+  const ids = await redis().smembers(FUNDING_SEEN);
+  return new Set(ids as string[]);
+}
+
+export async function markFundingSeen(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await redis().sadd(FUNDING_SEEN, ids[0], ...ids.slice(1));
+}
+
+export async function saveFundingItems(items: FundingItem[]): Promise<void> {
+  if (items.length === 0) return;
+  const pipe = redis().pipeline();
+  for (const it of items) {
+    pipe.set(fundingKey(it.id), JSON.stringify(it));
+    pipe.zadd(FUNDING_INDEX, { score: +new Date(it.postedAt), member: it.id });
+  }
+  await pipe.exec();
+}
+
+export async function getRecentFunding(limit = 50): Promise<FundingItem[]> {
+  const ids = (await redis().zrange(FUNDING_INDEX, 0, limit - 1, { rev: true })) as string[];
+  if (ids.length === 0) return [];
+  const pipe = redis().pipeline();
+  for (const id of ids) pipe.get(fundingKey(id));
+  const raws = (await pipe.exec()) as (string | FundingItem | null)[];
+  const out: FundingItem[] = [];
+  for (const raw of raws) {
+    if (!raw) continue;
+    out.push(typeof raw === 'string' ? (JSON.parse(raw) as FundingItem) : raw);
+  }
+  return out;
+}
+
+export async function getFundingItem(id: string): Promise<FundingItem | null> {
+  const raw = await redis().get(fundingKey(id));
+  if (!raw) return null;
+  return typeof raw === 'string' ? (JSON.parse(raw) as FundingItem) : (raw as FundingItem);
+}
+
+export async function updateFundingStatus(id: string, status: FundingItem['status']): Promise<void> {
+  const existing = await getFundingItem(id);
+  if (!existing) return;
+  await redis().set(fundingKey(id), JSON.stringify({ ...existing, status }));
+}
+
+export async function getFundingOutreach(id: string): Promise<FundingOutreach | null> {
+  const raw = await redis().get(fundingOutreachKey(id));
+  if (!raw) return null;
+  return typeof raw === 'string' ? (JSON.parse(raw) as FundingOutreach) : (raw as FundingOutreach);
+}
+
+export async function saveFundingOutreach(id: string, o: FundingOutreach): Promise<void> {
+  await redis().set(fundingOutreachKey(id), JSON.stringify(o));
+}
+
+/** Batch-fetch generated outreach drafts for the funding rows in one pipeline. */
+export async function getFundingOutreaches(ids: string[]): Promise<Map<string, FundingOutreach>> {
+  const out = new Map<string, FundingOutreach>();
+  if (ids.length === 0) return out;
+  const pipe = redis().pipeline();
+  for (const id of ids) pipe.get(fundingOutreachKey(id));
+  const raws = (await pipe.exec()) as (string | FundingOutreach | null)[];
+  ids.forEach((id, i) => {
+    const raw = raws[i];
+    if (!raw) return;
+    out.set(id, typeof raw === 'string' ? (JSON.parse(raw) as FundingOutreach) : raw);
+  });
+  return out;
 }
 
 export type TrackedArtifacts = { hasPdf: boolean; blurb: Blurb | null };

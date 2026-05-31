@@ -45,9 +45,11 @@ export const AGENTS: AgentMeta[] = [
   {
     id: 'funding',
     name: 'Funding Tracker',
-    description: 'Watch newly funded startups and surface them for cold outreach.',
+    description: 'Watch newly funded startups (TechCrunch) and draft per-company cold outreach.',
     kind: 'cron',
-    status: 'planned',
+    cadence: 'daily 09:30 UTC',
+    status: 'live',
+    runnable: true,
   },
   {
     id: 'hn',

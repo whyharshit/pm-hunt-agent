@@ -1,12 +1,20 @@
-import { getAgentRuns, getRecentJobs, getRecentTracked, getTrackedArtifacts } from '@/lib/storage';
+import {
+  getAgentRuns,
+  getFundingOutreaches,
+  getRecentFunding,
+  getRecentJobs,
+  getRecentTracked,
+  getTrackedArtifacts,
+} from '@/lib/storage';
 import type { TrackedArtifacts } from '@/lib/storage';
 import { TIER_EMOJI } from '@/lib/classify';
 import { LIVE_AGENT_IDS } from '@/lib/agents';
 import { setTrackedStatus, tailorTracked } from '@/lib/actions';
 import { fmtDate, hostOf } from '@/lib/format';
 import { AgentsPanel } from './agents-panel';
+import { FundingSection } from './funding-section';
 import { CopyButton } from './copy-button';
-import type { AgentRun, TrackedUrl } from '@/lib/types';
+import type { AgentRun, FundingItem, FundingOutreach, TrackedUrl } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -24,26 +32,32 @@ const STATUS_CLASS: Record<TrackedUrl['status'], string> = {
 
 async function loadData() {
   try {
-    const [tracked, jobs, agentRuns] = await Promise.all([
+    const [tracked, jobs, agentRuns, funding] = await Promise.all([
       getRecentTracked(50),
       getRecentJobs(50),
       getAgentRuns(LIVE_AGENT_IDS),
+      getRecentFunding(50),
     ]);
-    const artifacts = await getTrackedArtifacts(tracked.map((t) => t.id));
-    return { tracked, jobs, artifacts, agentRuns, error: null as string | null };
+    const [artifacts, fundingOutreach] = await Promise.all([
+      getTrackedArtifacts(tracked.map((t) => t.id)),
+      getFundingOutreaches(funding.map((f) => f.id)),
+    ]);
+    return { tracked, jobs, artifacts, agentRuns, funding, fundingOutreach, error: null as string | null };
   } catch (e) {
     return {
       tracked: [] as TrackedUrl[],
       jobs: [] as Awaited<ReturnType<typeof getRecentJobs>>,
       artifacts: new Map<string, TrackedArtifacts>(),
       agentRuns: new Map<string, AgentRun>(),
+      funding: [] as FundingItem[],
+      fundingOutreach: new Map<string, FundingOutreach>(),
       error: (e as Error).message,
     };
   }
 }
 
 export default async function Home() {
-  const { tracked, jobs, artifacts, agentRuns, error } = await loadData();
+  const { tracked, jobs, artifacts, agentRuns, funding, fundingOutreach, error } = await loadData();
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-black text-zinc-900 dark:text-zinc-100 font-sans">
@@ -168,6 +182,8 @@ export default async function Home() {
             </ul>
           )}
         </section>
+
+        <FundingSection items={funding} outreach={fundingOutreach} />
 
         <section>
           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">

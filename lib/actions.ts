@@ -1,12 +1,19 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { updateTracked } from './storage';
+import {
+  getFundingItem,
+  saveFundingOutreach,
+  updateFundingStatus,
+  updateTracked,
+} from './storage';
 import { runTailorPipeline } from './pipeline';
 import { runDiscovery } from './discover';
-import type { TrackedUrl } from './types';
+import { draftOutreach, runFundingScan } from './funding';
+import type { FundingItem, TrackedUrl } from './types';
 
 const VALID_STATUSES: TrackedUrl['status'][] = ['new', 'drafted', 'submitted', 'rejected', 'skipped'];
+const VALID_FUNDING_STATUSES: FundingItem['status'][] = ['new', 'contacted', 'skipped'];
 
 export async function setTrackedStatus(formData: FormData): Promise<void> {
   const id = formData.get('id');
@@ -17,18 +24,43 @@ export async function setTrackedStatus(formData: FormData): Promise<void> {
   revalidatePath('/');
 }
 
-/** "Run now" from an agent card. Only Discover is runnable on demand today. */
+/** "Run now" from an agent card. Each runnable agent records its own run-state. */
 export async function runAgent(formData: FormData): Promise<void> {
   const id = formData.get('id');
-  if (id === 'discover') {
-    // notify:false — a manual run shouldn't blast a Telegram digest. runDiscovery
-    // records its own run-state, so failures still surface on the card.
-    try {
+  try {
+    if (id === 'discover') {
+      // notify:false — a manual run shouldn't blast a Telegram digest.
       await runDiscovery({ notify: false });
-    } catch {
-      // run-state already recorded as 'error' inside runDiscovery
+    } else if (id === 'funding') {
+      await runFundingScan();
     }
+  } catch {
+    // run-state already recorded as 'error' inside the agent
   }
+  revalidatePath('/');
+}
+
+/** Draft a per-company cold outreach message for a funding row. */
+export async function draftFundingOutreach(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  if (typeof id !== 'string') return;
+  const item = await getFundingItem(id);
+  if (!item) return;
+  try {
+    const outreach = await draftOutreach(item);
+    await saveFundingOutreach(id, outreach);
+  } catch {
+    // surfaced as no draft appearing; user can retry
+  }
+  revalidatePath('/');
+}
+
+export async function setFundingStatus(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  const status = formData.get('status');
+  if (typeof id !== 'string' || typeof status !== 'string') return;
+  if (!VALID_FUNDING_STATUSES.includes(status as FundingItem['status'])) return;
+  await updateFundingStatus(id, status as FundingItem['status']);
   revalidatePath('/');
 }
 

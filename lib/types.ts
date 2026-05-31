@@ -71,6 +71,26 @@ export type Blurb = {
   jdScrapedAt: string;
 };
 
+export type FundingItem = {
+  id: string;
+  company: string;
+  amount?: string;
+  round?: string;
+  summary: string;
+  url: string;
+  source: 'techcrunch';
+  postedAt: string;
+  status: 'new' | 'contacted' | 'skipped';
+};
+
+export type FundingOutreach = {
+  id: string;
+  text: string;
+  angle: string;
+  generatedAt: string;
+  model: string;
+};
+
 export type AgentRun = {
   agentId: string;
   state: 'idle' | 'running' | 'ok' | 'error';
