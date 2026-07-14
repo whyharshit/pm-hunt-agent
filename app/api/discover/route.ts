@@ -1,5 +1,6 @@
 import { runDiscovery } from '@/lib/discover';
 import { fetchRemoteOk } from '@/lib/sources/remoteok';
+import { fetchWeWorkRemotely } from '@/lib/sources/wwr';
 import { isIntern, isProductOrOps, isRemote, isHardRejected } from '@/lib/filters';
 
 export const dynamic = 'force-dynamic';
@@ -19,8 +20,11 @@ export async function GET(request: Request) {
   const debug = url.searchParams.get('debug') === 'true';
 
   if (debug) {
-    const remoteOk = await fetchRemoteOk().catch(() => []);
-    const all = [...remoteOk];
+    const [remoteOk, wwr] = await Promise.all([
+      fetchRemoteOk().catch(() => []),
+      fetchWeWorkRemotely().catch(() => []),
+    ]);
+    const all = [...remoteOk, ...wwr];
 
     const internOnly = all.filter(isIntern);
     const internAndRole = internOnly.filter(isProductOrOps);
@@ -31,6 +35,7 @@ export async function GET(request: Request) {
     return Response.json({
       counts: {
         fetched: all.length,
+        fetchedBySource: { remoteok: remoteOk.length, wwr: wwr.length },
         passIntern: internOnly.length,
         passInternAndRole: internAndRole.length,
         passInternAndRoleAndRemote: internAndRoleAndRemote.length,

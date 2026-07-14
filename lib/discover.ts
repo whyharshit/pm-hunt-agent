@@ -1,4 +1,5 @@
 import { fetchRemoteOk } from './sources/remoteok';
+import { fetchWeWorkRemotely } from './sources/wwr';
 import { passes } from './filters';
 import { getSeenIds, markSeen, recordAgentRun, saveJobs, setAgentRunning } from './storage';
 import { sendTelegram, formatDigest } from './telegram';
@@ -27,9 +28,12 @@ export async function runDiscovery(opts: { notify?: boolean } = {}): Promise<Dis
   try {
     // HN "Who's Hiring" source disabled — broken, pulls discussion comments, not job posts.
     // TODO: rewrite to fetch the monthly "Ask HN: Who is hiring?" thread and parse top-level kids.
-    const remoteOk = await safe('remoteok', fetchRemoteOk, errors);
+    const [remoteOk, wwr] = await Promise.all([
+      safe('remoteok', fetchRemoteOk, errors),
+      safe('wwr', fetchWeWorkRemotely, errors),
+    ]);
 
-    const all: Job[] = [...(remoteOk ?? [])];
+    const all: Job[] = [...(remoteOk ?? []), ...(wwr ?? [])];
     const matching = all.filter(passes);
 
     const seen = await getSeenIds();
