@@ -1,3 +1,4 @@
+import { decodeEntities } from '../html';
 import type { Job } from '../types';
 
 type RemoteOkJob = {
@@ -36,9 +37,10 @@ export async function fetchRemoteOk(): Promise<Job[]> {
     return {
       id: `remoteok:${j.id}`,
       source: 'remoteok',
-      title: j.position ?? 'Unknown role',
-      company: j.company ?? 'Unknown',
-      location: j.location || 'Remote',
+      // RemoteOK serves entity-encoded text ("Operations &amp; Office Support").
+      title: decodeEntities(j.position ?? 'Unknown role'),
+      company: decodeEntities(j.company ?? 'Unknown'),
+      location: decodeEntities(j.location || 'Remote'),
       url: j.url ?? `https://remoteok.com/remote-jobs/${j.slug ?? j.id}`,
       applyUrl: j.apply_url,
       postedAt: j.epoch ? new Date(j.epoch * 1000) : new Date(j.date ?? Date.now()),

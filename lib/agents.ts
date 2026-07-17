@@ -20,7 +20,7 @@ export const AGENTS: AgentMeta[] = [
   {
     id: 'discover',
     name: 'Discover',
-    description: 'Pulls remote intern/PM roles from job boards (RemoteOK + We Work Remotely), filters them, and saves new matches.',
+    description: 'Pulls remote intern/PM roles from job boards (RemoteOK + We Work Remotely + HN Who\'s Hiring), filters them, and saves new matches.',
     kind: 'cron',
     cadence: 'daily 09:00 UTC',
     status: 'live',
@@ -52,18 +52,12 @@ export const AGENTS: AgentMeta[] = [
     runnable: true,
   },
   {
-    id: 'hn',
-    name: "HN Who's Hiring",
-    description: 'Parse the monthly "Ask HN: Who is hiring?" thread for remote roles.',
-    kind: 'cron',
-    status: 'planned',
-  },
-  {
     id: 'mailer',
     name: 'Mailing Agent',
-    description: 'Send tailored applications and outreach via email (Resend/Sendgrid).',
+    description: 'Send a funding cold-outreach email to a founder — one explicit send per click, never a batch.',
     kind: 'pipeline',
-    status: 'planned',
+    cadence: 'per outreach',
+    status: 'live',
   },
 ];
 

@@ -1,5 +1,6 @@
 import { fetchRemoteOk } from './sources/remoteok';
 import { fetchWeWorkRemotely } from './sources/wwr';
+import { fetchHnWhoIsHiring } from './sources/hn';
 import { passes } from './filters';
 import { getSeenIds, markSeen, recordAgentRun, saveJobs, setAgentRunning } from './storage';
 import { sendTelegram, formatDigest } from './telegram';
@@ -26,14 +27,14 @@ export async function runDiscovery(opts: { notify?: boolean } = {}): Promise<Dis
   await setAgentRunning('discover');
 
   try {
-    // HN "Who's Hiring" source disabled — broken, pulls discussion comments, not job posts.
-    // TODO: rewrite to fetch the monthly "Ask HN: Who is hiring?" thread and parse top-level kids.
-    const [remoteOk, wwr] = await Promise.all([
+    // Folded into this one cron rather than given their own: Hobby caps at 2 daily crons.
+    const [remoteOk, wwr, hn] = await Promise.all([
       safe('remoteok', fetchRemoteOk, errors),
       safe('wwr', fetchWeWorkRemotely, errors),
+      safe('hn', fetchHnWhoIsHiring, errors),
     ]);
 
-    const all: Job[] = [...(remoteOk ?? []), ...(wwr ?? [])];
+    const all: Job[] = [...(remoteOk ?? []), ...(wwr ?? []), ...(hn ?? [])];
     const matching = all.filter(passes);
 
     const seen = await getSeenIds();
@@ -44,12 +45,17 @@ export async function runDiscovery(opts: { notify?: boolean } = {}): Promise<Dis
       await markSeen(fresh.map((j) => j.id));
     }
 
+    // Only ping on something actionable. A daily "no new matches" is the norm, not news —
+    // the filters are title-anchored and generic boards are intern-sparse for this profile.
+    // Source failures still get through: silence should mean "nothing found", not "nothing ran".
     if (opts.notify ?? true) {
-      const msg =
-        fresh.length === 0
-          ? `<b>PM Hunt Agent</b>\nChecked ${all.length} listings. No new matches.${errors.length ? `\n\n<i>Errors: ${errors.join('; ')}</i>` : ''}`
-          : formatDigest(fresh);
-      await sendTelegram(msg);
+      if (fresh.length > 0) {
+        await sendTelegram(formatDigest(fresh));
+      } else if (errors.length > 0) {
+        await sendTelegram(
+          `<b>PM Hunt Agent</b>\nChecked ${all.length} listings, no new matches.\n\n<i>Errors: ${errors.join('; ')}</i>`
+        );
+      }
     }
 
     await recordAgentRun('discover', {
