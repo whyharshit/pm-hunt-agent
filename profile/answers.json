@@ -1,0 +1,44 @@
+{
+  "_comment": "Your reusable application answers. The Google Form pre-filler reads this to fill forms. Leave a field as \"\" if you don't have one; blank fields are simply left for you to fill by hand. Update anytime.",
+
+  "fullName": "",
+  "firstName": "",
+  "lastName": "",
+
+  "email": "",
+  "phone": "",
+  "whatsapp": "",
+
+  "city": "",
+  "country": "",
+  "timezone": "",
+  "bestTimeToCall": "",
+
+  "linkedin": "",
+  "portfolio": "",
+  "github": "",
+  "resumeLink": "",
+  "workSamplesLink": "",
+
+  "currentRole": "",
+  "currentCompany": "",
+  "yearsExperience": "",
+  "education": "",
+
+  "workAuthorization": "",
+  "canWorkUsHours": "",
+  "openToRemote": "",
+  "noticePeriodDays": "",
+  "earliestStartDate": "",
+  "expectedStipend": "",
+  "englishProficiency": "",
+
+  "whyThisRole": "",
+  "aboutMe": "",
+  "hearAboutUs": "",
+
+  "gender": "",
+  "pronouns": "",
+
+  "additional": ""
+}

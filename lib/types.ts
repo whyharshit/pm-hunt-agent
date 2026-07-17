@@ -119,6 +119,28 @@ export type FundingContact = {
   note?: string;
 };
 
+export type GformField = {
+  entryId: string;
+  title: string;
+  /** Google's question-type code from FB_PUBLIC_LOAD_DATA_. */
+  type: number;
+  typeName: string;
+  required: boolean;
+  options?: string[];
+};
+
+export type GformPrefill = {
+  trackerId: string;
+  formTitle: string;
+  /** The usp=pp_url link that opens the form with answers pre-populated. */
+  prefillUrl: string;
+  filled: Array<{ title: string; value: string }>;
+  skipped: Array<{ title: string; reason: string }>;
+  fieldCount: number;
+  generatedAt: string;
+  model: string;
+};
+
 export type AgentRun = {
   agentId: string;
   state: 'idle' | 'running' | 'ok' | 'error';

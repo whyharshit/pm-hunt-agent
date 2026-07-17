@@ -9,12 +9,14 @@ import {
   recordAgentRun,
   saveFundingContact,
   saveFundingOutreach,
+  saveGformPrefill,
   saveTracked,
   updateFundingStatus,
   updateTracked,
   urlId,
 } from './storage';
 import { classifyUrl, extractUrls, TIER_EMOJI } from './classify';
+import { generatePrefill } from './gform';
 import { hostOf } from './format';
 import { sendOutreachMail } from './mailer';
 import { runTailorPipeline } from './pipeline';
@@ -177,6 +179,33 @@ export async function setFundingStatus(formData: FormData): Promise<void> {
   if (typeof id !== 'string' || typeof status !== 'string') return;
   if (!VALID_FUNDING_STATUSES.includes(status as FundingItem['status'])) return;
   await updateFundingStatus(id, status as FundingItem['status']);
+  revalidatePath('/');
+}
+
+/**
+ * Generate a pre-filled link for a green-tier (Google Form) tracked row. Stores the
+ * result — including which fields were left blank — and surfaces any error inline. Never
+ * submits; the user opens the link, reviews, and submits themselves.
+ */
+export async function prefillGformTracked(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  if (typeof id !== 'string') return;
+  const tracked = await getTracked(id);
+  if (!tracked) return;
+  try {
+    const prefill = await generatePrefill(id, tracked.url);
+    await saveGformPrefill(id, prefill);
+    await updateTracked(id, { tailorError: null });
+    await recordAgentRun('formfiller', {
+      state: 'ok',
+      summary: `${prefill.filled.length}/${prefill.fieldCount} filled · ${prefill.formTitle}`.slice(0, 80),
+      stats: { filled: prefill.filled.length, fields: prefill.fieldCount },
+      error: null,
+    });
+  } catch (e) {
+    await updateTracked(id, { tailorError: `prefill: ${(e as Error).message}` });
+    await recordAgentRun('formfiller', { state: 'error', error: (e as Error).message });
+  }
   revalidatePath('/');
 }
 

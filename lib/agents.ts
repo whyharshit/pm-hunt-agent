@@ -52,6 +52,14 @@ export const AGENTS: AgentMeta[] = [
     runnable: true,
   },
   {
+    id: 'formfiller',
+    name: 'Form Pre-filler',
+    description: 'For a Google Form (🟢), build a pre-filled link from your saved answers. You review and submit — never auto-submitted.',
+    kind: 'pipeline',
+    cadence: 'per green form',
+    status: 'live',
+  },
+  {
     id: 'mailer',
     name: 'Mailing Agent',
     description: 'Send a funding cold-outreach email to a founder — one explicit send per click, never a batch.',

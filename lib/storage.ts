@@ -6,6 +6,7 @@ import type {
   FundingContact,
   FundingItem,
   FundingOutreach,
+  GformPrefill,
   Job,
   ScrapedJd,
   StoredPdf,
@@ -33,6 +34,7 @@ const trackerKey = (id: string) => `tracker:${id}`;
 const fundingKey = (id: string) => `funding:${id}`;
 const fundingOutreachKey = (id: string) => `funding-outreach:${id}`;
 const fundingContactKey = (id: string) => `funding-contact:${id}`;
+const gformKey = (id: string) => `gform:${id}`;
 const agentKey = (id: string) => `agent:${id}`;
 const jdKey = (id: string) => `jd:${id}`;
 const tailoredKey = (id: string) => `tailored:${id}`;
@@ -277,6 +279,31 @@ export async function getFundingContacts(ids: string[]): Promise<Map<string, Fun
     const raw = raws[i];
     if (!raw) return;
     out.set(id, typeof raw === 'string' ? (JSON.parse(raw) as FundingContact) : raw);
+  });
+  return out;
+}
+
+export async function getGformPrefill(id: string): Promise<GformPrefill | null> {
+  const raw = await redis().get(gformKey(id));
+  if (!raw) return null;
+  return typeof raw === 'string' ? (JSON.parse(raw) as GformPrefill) : (raw as GformPrefill);
+}
+
+export async function saveGformPrefill(id: string, p: GformPrefill): Promise<void> {
+  await redis().set(gformKey(id), JSON.stringify(p));
+}
+
+/** Batch-fetch generated form pre-fills for the green tracked rows in one pipeline. */
+export async function getGformPrefills(ids: string[]): Promise<Map<string, GformPrefill>> {
+  const out = new Map<string, GformPrefill>();
+  if (ids.length === 0) return out;
+  const pipe = redis().pipeline();
+  for (const id of ids) pipe.get(gformKey(id));
+  const raws = (await pipe.exec()) as (string | GformPrefill | null)[];
+  ids.forEach((id, i) => {
+    const raw = raws[i];
+    if (!raw) return;
+    out.set(id, typeof raw === 'string' ? (JSON.parse(raw) as GformPrefill) : raw);
   });
   return out;
 }

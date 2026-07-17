@@ -2,6 +2,7 @@ import {
   getAgentRuns,
   getFundingContacts,
   getFundingOutreaches,
+  getGformPrefills,
   getRecentFunding,
   getRecentJobs,
   getRecentTracked,
@@ -13,11 +14,20 @@ import { LIVE_AGENT_IDS } from '@/lib/agents';
 import { setTrackedStatus, tailorTracked } from '@/lib/actions';
 import { mailerConfigured } from '@/lib/mailer';
 import { fmtDate, hostOf } from '@/lib/format';
+import { answersFilled } from '@/lib/gform';
 import { AgentsPanel } from './agents-panel';
 import { FundingSection } from './funding-section';
 import { AddUrlForm } from './add-url-form';
+import { GformRow } from './gform-row';
 import { CopyButton } from './copy-button';
-import type { AgentRun, FundingContact, FundingItem, FundingOutreach, TrackedUrl } from '@/lib/types';
+import type {
+  AgentRun,
+  FundingContact,
+  FundingItem,
+  FundingOutreach,
+  GformPrefill,
+  TrackedUrl,
+} from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -41,10 +51,12 @@ async function loadData() {
       getAgentRuns(LIVE_AGENT_IDS),
       getRecentFunding(50),
     ]);
-    const [artifacts, fundingOutreach, fundingContacts] = await Promise.all([
+    const greenIds = tracked.filter((t) => t.tier === 'green').map((t) => t.id);
+    const [artifacts, fundingOutreach, fundingContacts, gformPrefills] = await Promise.all([
       getTrackedArtifacts(tracked.map((t) => t.id)),
       getFundingOutreaches(funding.map((f) => f.id)),
       getFundingContacts(funding.map((f) => f.id)),
+      getGformPrefills(greenIds),
     ]);
     return {
       tracked,
@@ -54,6 +66,7 @@ async function loadData() {
       funding,
       fundingOutreach,
       fundingContacts,
+      gformPrefills,
       error: null as string | null,
     };
   } catch (e) {
@@ -65,14 +78,25 @@ async function loadData() {
       funding: [] as FundingItem[],
       fundingOutreach: new Map<string, FundingOutreach>(),
       fundingContacts: new Map<string, FundingContact>(),
+      gformPrefills: new Map<string, GformPrefill>(),
       error: (e as Error).message,
     };
   }
 }
 
 export default async function Home() {
-  const { tracked, jobs, artifacts, agentRuns, funding, fundingOutreach, fundingContacts, error } =
-    await loadData();
+  const {
+    tracked,
+    jobs,
+    artifacts,
+    agentRuns,
+    funding,
+    fundingOutreach,
+    fundingContacts,
+    gformPrefills,
+    error,
+  } = await loadData();
+  const answersReady = answersFilled();
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-black text-zinc-900 dark:text-zinc-100 font-sans">
@@ -191,6 +215,14 @@ export default async function Home() {
                         </span>
                       )}
                     </div>
+                  )}
+
+                  {t.tier === 'green' && (
+                    <GformRow
+                      tracked={t}
+                      prefill={gformPrefills.get(t.id)}
+                      answersReady={answersReady}
+                    />
                   )}
                 </li>
                 );
