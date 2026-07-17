@@ -18,7 +18,7 @@ export type TrackedUrl = {
   id: string;
   url: string;
   tier: Tier;
-  source: 'telegram';
+  source: 'telegram' | 'manual';
   addedAt: string;
   status: 'new' | 'drafted' | 'submitted' | 'rejected' | 'skipped';
   note?: string;
@@ -87,8 +87,13 @@ export type FundingOutreach = {
   id: string;
   text: string;
   angle: string;
+  /** Email subject. Optional — drafts generated before the Mailing Agent existed lack one. */
+  subject?: string;
   generatedAt: string;
   model: string;
+  /** Set once actually emailed. Presence means a real message left the building. */
+  sentAt?: string;
+  sentTo?: string;
 };
 
 export type ContactPerson = {

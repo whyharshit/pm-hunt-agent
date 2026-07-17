@@ -152,6 +152,7 @@ HARD RULES:
 5. End with a low-friction ask ("worth a quick chat?", "open to a 15-min intro?").
 6. Plain text only — no markdown, no emojis, no "Dear", no letter formatting.
 7. If a RECIPIENT is named, open with a bare first-name greeting ("Hi Maya —") before the raise reference. If no recipient is named, use no greeting at all.
+8. Also write "subject": an email subject line, ≤ 60 chars, concrete and specific to this company. No clickbait, no "Job application", no exclamation marks.
 
 Also output the role angle you chose in the "angle" field.`;
 
@@ -160,9 +161,10 @@ const outreachSchema = {
   properties: {
     text: { type: Type.STRING },
     angle: { type: Type.STRING },
+    subject: { type: Type.STRING },
   },
-  required: ['text', 'angle'],
-  propertyOrdering: ['angle', 'text'],
+  required: ['text', 'angle', 'subject'],
+  propertyOrdering: ['angle', 'subject', 'text'],
 };
 
 export async function draftOutreach(
@@ -212,7 +214,7 @@ export async function draftOutreach(
 
   const text = response.text;
   if (!text) throw new Error('Gemini returned empty response');
-  const parsed = JSON.parse(text) as { text?: string; angle?: string };
+  const parsed = JSON.parse(text) as { text?: string; angle?: string; subject?: string };
   if (!parsed.text || !parsed.angle) throw new Error('Gemini response missing text/angle');
   if (parsed.text.length > MAX_OUTREACH) {
     throw new Error(`outreach too long: ${parsed.text.length} > ${MAX_OUTREACH}`);
@@ -222,6 +224,7 @@ export async function draftOutreach(
     id: item.id,
     text: parsed.text,
     angle: parsed.angle,
+    subject: parsed.subject?.trim() || `${item.company} — quick note`,
     generatedAt: new Date().toISOString(),
     model: MODEL,
   };

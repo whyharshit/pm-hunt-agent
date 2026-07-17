@@ -1,4 +1,4 @@
-import { draftFundingOutreach, findFundingContact, setFundingStatus } from '@/lib/actions';
+import { draftFundingOutreach, findFundingContact, sendFundingEmail, setFundingStatus } from '@/lib/actions';
 import { fmtDate, hostOf } from '@/lib/format';
 import { CopyButton } from './copy-button';
 import type { FundingContact, FundingItem, FundingOutreach } from '@/lib/types';
@@ -57,14 +57,78 @@ function ContactLine({ contact }: { contact: FundingContact }) {
   );
 }
 
+function SendRow({
+  item,
+  draft,
+  contact,
+  mailerReady,
+}: {
+  item: FundingItem;
+  draft: FundingOutreach;
+  contact: FundingContact;
+  mailerReady: boolean;
+}) {
+  if (draft.sentAt) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-green-700 dark:text-green-400">
+        ✓ Sent to <span className="font-mono">{draft.sentTo}</span> · {fmtDate(draft.sentAt)}
+        <form action={sendFundingEmail}>
+          <input type="hidden" name="id" value={item.id} />
+          <input type="hidden" name="to" value={draft.sentTo ?? ''} />
+          <button
+            type="submit"
+            className="h-6 rounded border border-zinc-300 bg-white px-2 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            Send again
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  if (!mailerReady) {
+    return (
+      <p className="text-[11px] text-amber-700 dark:text-amber-400">
+        Sending is off — set <code>RESEND_API_KEY</code> and <code>MAIL_FROM</code> on Vercel to enable it.
+      </p>
+    );
+  }
+
+  return (
+    <form action={sendFundingEmail} className="flex flex-wrap items-center gap-2">
+      <input type="hidden" name="id" value={item.id} />
+      <select
+        name="to"
+        defaultValue={contact.emails[0].address}
+        className="h-7 rounded border border-zinc-300 bg-white px-2 font-mono text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+      >
+        {contact.emails.map((e) => (
+          <option key={e.address} value={e.address}>{e.address}</option>
+        ))}
+      </select>
+      <button
+        type="submit"
+        className="h-7 rounded border border-amber-400 bg-amber-50 px-2 text-xs font-semibold text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200 dark:hover:bg-amber-900"
+      >
+        Send email
+      </button>
+      <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
+        subject: “{draft.subject || `${item.company} — quick note`}”
+      </span>
+    </form>
+  );
+}
+
 export function FundingSection({
   items,
   outreach,
   contacts,
+  mailerReady,
 }: {
   items: FundingItem[];
   outreach: Map<string, FundingOutreach>;
   contacts: Map<string, FundingContact>;
+  mailerReady: boolean;
 }) {
   return (
     <section className="mb-12">
@@ -156,6 +220,10 @@ export function FundingSection({
                   <p className="rounded border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
                     {draft.text}
                   </p>
+                )}
+
+                {draft && contact && contact.emails.length > 0 && (
+                  <SendRow item={it} draft={draft} contact={contact} mailerReady={mailerReady} />
                 )}
               </li>
             );

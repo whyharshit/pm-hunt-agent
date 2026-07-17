@@ -11,9 +11,11 @@ import type { TrackedArtifacts } from '@/lib/storage';
 import { TIER_EMOJI } from '@/lib/classify';
 import { LIVE_AGENT_IDS } from '@/lib/agents';
 import { setTrackedStatus, tailorTracked } from '@/lib/actions';
+import { mailerConfigured } from '@/lib/mailer';
 import { fmtDate, hostOf } from '@/lib/format';
 import { AgentsPanel } from './agents-panel';
 import { FundingSection } from './funding-section';
+import { AddUrlForm } from './add-url-form';
 import { CopyButton } from './copy-button';
 import type { AgentRun, FundingContact, FundingItem, FundingOutreach, TrackedUrl } from '@/lib/types';
 
@@ -99,9 +101,10 @@ export default async function Home() {
           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
             Tracked URLs · {tracked.length}
           </h2>
+          <AddUrlForm />
           {tracked.length === 0 ? (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              Nothing tracked yet. DM the Telegram bot a job URL to start.
+              Nothing tracked yet. Paste a job URL above, or DM the Telegram bot.
             </p>
           ) : (
             <ul className="divide-y divide-zinc-200 dark:divide-zinc-800 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
@@ -196,7 +199,12 @@ export default async function Home() {
           )}
         </section>
 
-        <FundingSection items={funding} outreach={fundingOutreach} contacts={fundingContacts} />
+        <FundingSection
+          items={funding}
+          outreach={fundingOutreach}
+          contacts={fundingContacts}
+          mailerReady={mailerConfigured()}
+        />
 
         <section>
           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">

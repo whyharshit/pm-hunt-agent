@@ -4,11 +4,19 @@ import { revalidatePath } from 'next/cache';
 import {
   getFundingContact,
   getFundingItem,
+  getFundingOutreach,
+  getTracked,
+  recordAgentRun,
   saveFundingContact,
   saveFundingOutreach,
+  saveTracked,
   updateFundingStatus,
   updateTracked,
+  urlId,
 } from './storage';
+import { classifyUrl, extractUrls, TIER_EMOJI } from './classify';
+import { hostOf } from './format';
+import { sendOutreachMail } from './mailer';
 import { runTailorPipeline } from './pipeline';
 import { runDiscovery } from './discover';
 import { findContact } from './contact';
@@ -17,6 +25,57 @@ import type { FundingItem, TrackedUrl } from './types';
 
 const VALID_STATUSES: TrackedUrl['status'][] = ['new', 'drafted', 'submitted', 'rejected', 'skipped'];
 const VALID_FUNDING_STATUSES: FundingItem['status'][] = ['new', 'contacted', 'skipped'];
+
+export type AddUrlState = { ok: boolean; message: string };
+
+/**
+ * Dashboard equivalent of DMing the bot a link — same classifier, same tracker storage,
+ * so a manually-added URL is indistinguishable downstream (the tailorer just works).
+ * Takes free text, not a strict URL, to match the webhook's forgiving paste behaviour.
+ */
+export async function addTrackedUrl(_prev: AddUrlState, formData: FormData): Promise<AddUrlState> {
+  const raw = formData.get('url');
+  if (typeof raw !== 'string' || !raw.trim()) return { ok: false, message: 'Paste a URL first.' };
+
+  const urls = extractUrls(raw.trim());
+  if (urls.length === 0) return { ok: false, message: 'No http(s) link found in that text.' };
+
+  const added: string[] = [];
+  let dupes = 0;
+  for (const url of urls) {
+    const id = urlId(url);
+    if (await getTracked(id)) {
+      dupes += 1;
+      continue;
+    }
+    const tier = classifyUrl(url);
+    await saveTracked({
+      id,
+      url,
+      tier,
+      source: 'manual',
+      addedAt: new Date().toISOString(),
+      status: 'new',
+    });
+    added.push(`${TIER_EMOJI[tier]} ${hostOf(url)}`);
+  }
+
+  if (added.length > 0) {
+    await recordAgentRun('intake', {
+      state: 'ok',
+      summary: `+${added.length} URL${added.length > 1 ? 's' : ''} · manual`,
+      stats: { received: urls.length, added: added.length },
+      error: null,
+    });
+  }
+  revalidatePath('/');
+
+  if (added.length === 0) return { ok: false, message: `Already tracked (${dupes}).` };
+  return {
+    ok: true,
+    message: `Added ${added.join(', ')}${dupes ? ` · ${dupes} already tracked` : ''}`,
+  };
+}
 
 export async function setTrackedStatus(formData: FormData): Promise<void> {
   const id = formData.get('id');
@@ -77,6 +136,37 @@ export async function findFundingContact(formData: FormData): Promise<void> {
       model: 'gemini-2.5-flash',
       note: `lookup failed: ${(e as Error).message}`,
     });
+  }
+  revalidatePath('/');
+}
+
+/**
+ * Send one funding outreach email. Deliberately narrow: the recipient must be an address
+ * the contact lookup actually found on the company's own site (no free-text "to"), and a
+ * draft must already exist — so nothing gets composed and sent in the same click.
+ */
+export async function sendFundingEmail(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  const to = formData.get('to');
+  if (typeof id !== 'string' || typeof to !== 'string') return;
+
+  const [item, outreach, contact] = await Promise.all([
+    getFundingItem(id),
+    getFundingOutreach(id),
+    getFundingContact(id),
+  ]);
+  if (!item || !outreach) return;
+
+  // Only ever send to a harvested address — never to whatever the form posted.
+  if (!contact?.emails.some((e) => e.address === to)) return;
+
+  try {
+    const subject = outreach.subject || `${item.company} — quick note`;
+    await sendOutreachMail({ to, subject, text: outreach.text, company: item.company });
+    await saveFundingOutreach(id, { ...outreach, sentAt: new Date().toISOString(), sentTo: to });
+    await updateFundingStatus(id, 'contacted');
+  } catch {
+    // run-state already recorded as 'error' by sendOutreachMail; the card surfaces it
   }
   revalidatePath('/');
 }
