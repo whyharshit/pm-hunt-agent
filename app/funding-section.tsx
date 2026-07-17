@@ -1,7 +1,7 @@
-import { draftFundingOutreach, setFundingStatus } from '@/lib/actions';
+import { draftFundingOutreach, findFundingContact, setFundingStatus } from '@/lib/actions';
 import { fmtDate, hostOf } from '@/lib/format';
 import { CopyButton } from './copy-button';
-import type { FundingItem, FundingOutreach } from '@/lib/types';
+import type { FundingContact, FundingItem, FundingOutreach } from '@/lib/types';
 
 const STATUSES: FundingItem['status'][] = ['new', 'contacted', 'skipped'];
 
@@ -11,12 +11,60 @@ const STATUS_CLASS: Record<FundingItem['status'], string> = {
   skipped: 'bg-zinc-100 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-500',
 };
 
+function ContactLine({ contact }: { contact: FundingContact }) {
+  const hasAnything = contact.founders.length > 0 || contact.emails.length > 0 || contact.website;
+  return (
+    <div className="rounded border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-900">
+      {contact.founders.length > 0 && (
+        <div className="text-zinc-700 dark:text-zinc-300">
+          {contact.founders.map((f) => `${f.name}${f.title ? ` · ${f.title}` : ''}`).join('  |  ')}
+        </div>
+      )}
+      {contact.emails.length > 0 && (
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+          {contact.emails.map((e) => (
+            <a
+              key={e.address}
+              href={`mailto:${e.address}`}
+              title={`found on ${e.foundOn}`}
+              className="rounded bg-emerald-100 px-1.5 py-0.5 font-mono text-[11px] text-emerald-800 hover:underline dark:bg-emerald-900/40 dark:text-emerald-200"
+            >
+              {e.address}
+            </a>
+          ))}
+        </div>
+      )}
+      {(contact.website || contact.socials.length > 0) && (
+        <div className="mt-1 flex flex-wrap gap-x-2 text-[11px] text-zinc-400 dark:text-zinc-500">
+          {contact.website && (
+            <a href={contact.website} target="_blank" rel="noreferrer noopener" className="hover:underline">
+              {hostOf(contact.website)}
+            </a>
+          )}
+          {contact.socials.map((s) => (
+            <a key={s} href={s} target="_blank" rel="noreferrer noopener" className="hover:underline">
+              {hostOf(s)}
+            </a>
+          ))}
+        </div>
+      )}
+      {contact.note && (
+        <div className={`${hasAnything ? 'mt-1 ' : ''}text-[11px] text-amber-700 dark:text-amber-400`}>
+          {contact.note}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function FundingSection({
   items,
   outreach,
+  contacts,
 }: {
   items: FundingItem[];
   outreach: Map<string, FundingOutreach>;
+  contacts: Map<string, FundingContact>;
 }) {
   return (
     <section className="mb-12">
@@ -31,6 +79,7 @@ export function FundingSection({
         <ul className="divide-y divide-zinc-200 dark:divide-zinc-800 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
           {items.map((it) => {
             const draft = outreach.get(it.id);
+            const contact = contacts.get(it.id);
             return (
               <li key={it.id} className="flex flex-col gap-2 px-4 py-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-4">
@@ -75,6 +124,15 @@ export function FundingSection({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
+                  <form action={findFundingContact}>
+                    <input type="hidden" name="id" value={it.id} />
+                    <button
+                      type="submit"
+                      className="h-7 rounded border border-sky-300 bg-sky-50 px-2 text-xs font-medium text-sky-700 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-200 dark:hover:bg-sky-900"
+                    >
+                      {contact ? 'Re-find contact' : 'Find contact'}
+                    </button>
+                  </form>
                   <form action={draftFundingOutreach}>
                     <input type="hidden" name="id" value={it.id} />
                     <button
@@ -91,6 +149,8 @@ export function FundingSection({
                     </span>
                   )}
                 </div>
+
+                {contact && <ContactLine contact={contact} />}
 
                 {draft && (
                   <p className="rounded border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">

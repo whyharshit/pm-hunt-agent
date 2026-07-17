@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import type {
   AgentRun,
   Blurb,
+  FundingContact,
   FundingItem,
   FundingOutreach,
   Job,
@@ -31,6 +32,7 @@ const jobKey = (id: string) => `job:${id}`;
 const trackerKey = (id: string) => `tracker:${id}`;
 const fundingKey = (id: string) => `funding:${id}`;
 const fundingOutreachKey = (id: string) => `funding-outreach:${id}`;
+const fundingContactKey = (id: string) => `funding-contact:${id}`;
 const agentKey = (id: string) => `agent:${id}`;
 const jdKey = (id: string) => `jd:${id}`;
 const tailoredKey = (id: string) => `tailored:${id}`;
@@ -250,6 +252,31 @@ export async function getFundingOutreaches(ids: string[]): Promise<Map<string, F
     const raw = raws[i];
     if (!raw) return;
     out.set(id, typeof raw === 'string' ? (JSON.parse(raw) as FundingOutreach) : raw);
+  });
+  return out;
+}
+
+export async function getFundingContact(id: string): Promise<FundingContact | null> {
+  const raw = await redis().get(fundingContactKey(id));
+  if (!raw) return null;
+  return typeof raw === 'string' ? (JSON.parse(raw) as FundingContact) : (raw as FundingContact);
+}
+
+export async function saveFundingContact(id: string, c: FundingContact): Promise<void> {
+  await redis().set(fundingContactKey(id), JSON.stringify(c));
+}
+
+/** Batch-fetch resolved founder contacts for the funding rows in one pipeline. */
+export async function getFundingContacts(ids: string[]): Promise<Map<string, FundingContact>> {
+  const out = new Map<string, FundingContact>();
+  if (ids.length === 0) return out;
+  const pipe = redis().pipeline();
+  for (const id of ids) pipe.get(fundingContactKey(id));
+  const raws = (await pipe.exec()) as (string | FundingContact | null)[];
+  ids.forEach((id, i) => {
+    const raw = raws[i];
+    if (!raw) return;
+    out.set(id, typeof raw === 'string' ? (JSON.parse(raw) as FundingContact) : raw);
   });
   return out;
 }

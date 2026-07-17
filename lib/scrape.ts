@@ -16,7 +16,7 @@ export class ScrapeError extends Error {
   }
 }
 
-async function fetchHtml(url: string): Promise<string> {
+export async function fetchHtml(url: string, timeoutMs?: number): Promise<string> {
   const res = await fetch(url, {
     headers: {
       'user-agent': UA,
@@ -24,6 +24,7 @@ async function fetchHtml(url: string): Promise<string> {
       'accept-language': 'en-US,en;q=0.9',
     },
     redirect: 'follow',
+    signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
   });
   if (!res.ok) {
     throw new ScrapeError(`fetch ${res.status} ${res.statusText}`, res.status);

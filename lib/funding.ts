@@ -8,7 +8,7 @@ import {
   saveFundingItems,
   setAgentRunning,
 } from './storage';
-import type { FundingItem, FundingOutreach } from './types';
+import type { FundingContact, FundingItem, FundingOutreach } from './types';
 
 const MODEL = 'gemini-2.5-flash';
 const MAX_OUTREACH = 320;
@@ -151,6 +151,7 @@ HARD RULES:
 4. Pair it with ONE concrete credential from the candidate's resume (a real company, a quantified outcome, or a tool they shipped). Never invent.
 5. End with a low-friction ask ("worth a quick chat?", "open to a 15-min intro?").
 6. Plain text only — no markdown, no emojis, no "Dear", no letter formatting.
+7. If a RECIPIENT is named, open with a bare first-name greeting ("Hi Maya —") before the raise reference. If no recipient is named, use no greeting at all.
 
 Also output the role angle you chose in the "angle" field.`;
 
@@ -164,10 +165,14 @@ const outreachSchema = {
   propertyOrdering: ['angle', 'text'],
 };
 
-export async function draftOutreach(item: FundingItem): Promise<FundingOutreach> {
+export async function draftOutreach(
+  item: FundingItem,
+  contact?: FundingContact | null
+): Promise<FundingOutreach> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY not set');
 
+  const recipient = contact?.founders[0];
   const ai = new GoogleGenAI({ apiKey });
   const prompt = [
     'FUNDING CONTEXT:',
@@ -175,6 +180,7 @@ export async function draftOutreach(item: FundingItem): Promise<FundingOutreach>
     item.amount ? `Amount: ${item.amount}` : null,
     item.round ? `Round: ${item.round}` : null,
     `Summary: ${item.summary}`,
+    recipient ? `Recipient: ${recipient.name}${recipient.title ? ` (${recipient.title})` : ''}` : null,
     '',
     '---',
     'CANDIDATE (do not invent beyond this):',

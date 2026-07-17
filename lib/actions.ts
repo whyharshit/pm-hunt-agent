@@ -2,13 +2,16 @@
 
 import { revalidatePath } from 'next/cache';
 import {
+  getFundingContact,
   getFundingItem,
+  saveFundingContact,
   saveFundingOutreach,
   updateFundingStatus,
   updateTracked,
 } from './storage';
 import { runTailorPipeline } from './pipeline';
 import { runDiscovery } from './discover';
+import { findContact } from './contact';
 import { draftOutreach, runFundingScan } from './funding';
 import type { FundingItem, TrackedUrl } from './types';
 
@@ -40,17 +43,40 @@ export async function runAgent(formData: FormData): Promise<void> {
   revalidatePath('/');
 }
 
-/** Draft a per-company cold outreach message for a funding row. */
+/** Draft a per-company cold outreach message for a funding row, addressed to the founder if we know one. */
 export async function draftFundingOutreach(formData: FormData): Promise<void> {
   const id = formData.get('id');
   if (typeof id !== 'string') return;
   const item = await getFundingItem(id);
   if (!item) return;
   try {
-    const outreach = await draftOutreach(item);
+    const contact = await getFundingContact(id);
+    const outreach = await draftOutreach(item, contact);
     await saveFundingOutreach(id, outreach);
   } catch {
     // surfaced as no draft appearing; user can retry
+  }
+  revalidatePath('/');
+}
+
+/** Resolve who to send a funding row's outreach to: founder names + published emails off the company site. */
+export async function findFundingContact(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  if (typeof id !== 'string') return;
+  const item = await getFundingItem(id);
+  if (!item) return;
+  try {
+    await saveFundingContact(id, await findContact(item));
+  } catch (e) {
+    await saveFundingContact(id, {
+      id,
+      founders: [],
+      emails: [],
+      socials: [],
+      foundAt: new Date().toISOString(),
+      model: 'gemini-2.5-flash',
+      note: `lookup failed: ${(e as Error).message}`,
+    });
   }
   revalidatePath('/');
 }

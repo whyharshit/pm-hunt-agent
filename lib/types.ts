@@ -91,6 +91,29 @@ export type FundingOutreach = {
   model: string;
 };
 
+export type ContactPerson = {
+  name: string;
+  title?: string;
+};
+
+export type ContactEmail = {
+  address: string;
+  /** Page the address was literally found on. Addresses are never inferred or guessed. */
+  foundOn: string;
+};
+
+export type FundingContact = {
+  id: string;
+  founders: ContactPerson[];
+  website?: string;
+  emails: ContactEmail[];
+  socials: string[];
+  foundAt: string;
+  model: string;
+  /** Why a lookup came back thin (no site linked, site unreachable, no public email). */
+  note?: string;
+};
+
 export type AgentRun = {
   agentId: string;
   state: 'idle' | 'running' | 'ok' | 'error';

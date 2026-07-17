@@ -1,5 +1,6 @@
 import {
   getAgentRuns,
+  getFundingContacts,
   getFundingOutreaches,
   getRecentFunding,
   getRecentJobs,
@@ -14,7 +15,7 @@ import { fmtDate, hostOf } from '@/lib/format';
 import { AgentsPanel } from './agents-panel';
 import { FundingSection } from './funding-section';
 import { CopyButton } from './copy-button';
-import type { AgentRun, FundingItem, FundingOutreach, TrackedUrl } from '@/lib/types';
+import type { AgentRun, FundingContact, FundingItem, FundingOutreach, TrackedUrl } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -38,11 +39,21 @@ async function loadData() {
       getAgentRuns(LIVE_AGENT_IDS),
       getRecentFunding(50),
     ]);
-    const [artifacts, fundingOutreach] = await Promise.all([
+    const [artifacts, fundingOutreach, fundingContacts] = await Promise.all([
       getTrackedArtifacts(tracked.map((t) => t.id)),
       getFundingOutreaches(funding.map((f) => f.id)),
+      getFundingContacts(funding.map((f) => f.id)),
     ]);
-    return { tracked, jobs, artifacts, agentRuns, funding, fundingOutreach, error: null as string | null };
+    return {
+      tracked,
+      jobs,
+      artifacts,
+      agentRuns,
+      funding,
+      fundingOutreach,
+      fundingContacts,
+      error: null as string | null,
+    };
   } catch (e) {
     return {
       tracked: [] as TrackedUrl[],
@@ -51,13 +62,15 @@ async function loadData() {
       agentRuns: new Map<string, AgentRun>(),
       funding: [] as FundingItem[],
       fundingOutreach: new Map<string, FundingOutreach>(),
+      fundingContacts: new Map<string, FundingContact>(),
       error: (e as Error).message,
     };
   }
 }
 
 export default async function Home() {
-  const { tracked, jobs, artifacts, agentRuns, funding, fundingOutreach, error } = await loadData();
+  const { tracked, jobs, artifacts, agentRuns, funding, fundingOutreach, fundingContacts, error } =
+    await loadData();
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-black text-zinc-900 dark:text-zinc-100 font-sans">
@@ -183,7 +196,7 @@ export default async function Home() {
           )}
         </section>
 
-        <FundingSection items={funding} outreach={fundingOutreach} />
+        <FundingSection items={funding} outreach={fundingOutreach} contacts={fundingContacts} />
 
         <section>
           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
