@@ -2,6 +2,7 @@ import * as cheerio from 'cheerio';
 import type { AnyNode } from 'domhandler';
 import { GoogleGenAI, Type } from '@google/genai';
 import { fetchHtml } from './scrape';
+import { stripTags } from './html';
 import type { ContactEmail, ContactPerson, FundingContact, FundingItem } from './types';
 
 const MODEL = 'gemini-2.5-flash';
@@ -157,23 +158,6 @@ async function extractPeople(item: FundingItem, facts: ArticleFacts): Promise<Ex
   const website = host && facts.candidates.includes(host) ? `https://${host}` : '';
 
   return { founders, website };
-}
-
-/**
- * Tag-strip to spaced text. Cheerio's .text() concatenates adjacent nodes with no
- * separator, which welds an address to the next node's prose and corrupts the TLD
- * ("booking@x.com" + "you can…" → "booking@x.comyou"). Also decodes the numeric
- * entities sites use to obfuscate addresses.
- */
-function stripTags(html: string): string {
-  return html
-    .replace(/<(script|style|noscript)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/\s+/g, ' ');
 }
 
 function harvestEmails(pageUrl: string, html: string, into: Map<string, string>): void {
