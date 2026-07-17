@@ -1,17 +1,17 @@
 {
   "_comment": "Your reusable application answers. The Google Form pre-filler reads this to fill forms. Leave a field as \"\" if you don't have one; blank fields are simply left for you to fill by hand. Update anytime.",
 
-  "fullName": "",
-  "firstName": "",
-  "lastName": "",
+  "fullName": "Shivansh Chaudhary",
+  "firstName": "Shivansh",
+  "lastName": "Chaudhary",
 
-  "email": "",
+  "email": "hello@lovingroom.co",
   "phone": "",
   "whatsapp": "",
 
   "city": "",
-  "country": "",
-  "timezone": "",
+  "country": "India",
+  "timezone": "IST (GMT+5:30)",
   "bestTimeToCall": "",
 
   "linkedin": "",
@@ -20,25 +20,25 @@
   "resumeLink": "",
   "workSamplesLink": "",
 
-  "currentRole": "",
-  "currentCompany": "",
-  "yearsExperience": "",
-  "education": "",
+  "currentRole": "Product Management Intern",
+  "currentCompany": "Freightnaut",
+  "yearsExperience": "1+ year across product, growth and AI internships",
+  "education": "B.Arch, IIT Kharagpur (expected 2028), CGPA 7.64/10",
 
-  "workAuthorization": "",
+  "workAuthorization": "Indian citizen",
   "canWorkUsHours": "",
-  "openToRemote": "",
+  "openToRemote": "Yes",
   "noticePeriodDays": "",
   "earliestStartDate": "",
   "expectedStipend": "",
-  "englishProficiency": "",
+  "englishProficiency": "Fluent",
 
-  "whyThisRole": "",
-  "aboutMe": "",
+  "whyThisRole": "I want an early-stage product/ops role where I can own outcomes end to end. I've shipped 0-to-1 agentic AI products at Omnidel.ai, led product discovery at Freightnaut, and driven multi-city growth for a live-events marketplace — I turn ambiguity into a build-ready roadmap and move fast.",
+  "aboutMe": "Shivansh, a B.Arch student at IIT Kharagpur and a product/growth generalist. I've interned across product (Freightnaut), agentic AI (Omnidel.ai) and GTM (mylynk.ai), and I'm on the founding team of Lovng, a live-events marketplace. I ship fast and automate the boring parts.",
   "hearAboutUs": "",
 
   "gender": "",
   "pronouns": "",
 
-  "additional": ""
+  "additional": "IIT Kharagpur B.Arch. PM & product-discovery intern at Freightnaut (0-to-1 Export Intelligence tool, 15+ exporter interviews). Product engineering intern at Omnidel.ai — shipped agentic AI products in production (cut quote turnaround 85%). Growth engineering intern at mylynk.ai — AI-agent GTM engine surfacing 2,000+ BFSI signals/month. Founding team at Lovng — live-events marketplace across 14 cities; lifted lead qualification 60%, tripled bookable inventory. Gold medalist, M&A Masterminds case competition (IIT Delhi). 1st place, Inter-College D24 architecture challenge. Mentored 350+ JEE aspirants at Physics Wallah."
 }
