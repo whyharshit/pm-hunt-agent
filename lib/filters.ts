@@ -15,7 +15,7 @@ const INTERN_PATTERNS: RegExp[] = [
   /\btrainee\b/i,
 ];
 
-// At least one role keyword must appear, preferably in the TITLE (we score titles higher).
+// At least one role keyword must appear in the TITLE. See isProductOrOps.
 const ROLE_PATTERNS: RegExp[] = [
   /\bproduct\b/i,
   /\bstrategy\b/i,
@@ -74,7 +74,8 @@ const HARD_REJECT_TITLE_PATTERNS: RegExp[] = [
   /\bsenior\b/i,
   /\bsr\.?\s/i,
   /\bprincipal\b/i,
-  /\bstaff\b/i,
+  // "Staff Engineer" is seniority and must go; "Chief of Staff" is a target role.
+  /(?<!\bchief of )\bstaff\b/i,
   /\blead\b/i,
 ];
 
@@ -98,15 +99,17 @@ function broadText(j: Job): string {
   return [j.title, j.location, j.description ?? '', ...j.tags].join(' ');
 }
 
+// Both role signals are TITLE-anchored. Matching them against the description instead
+// admits anything that merely *mentions* the words: a Video Editor whose blurb says
+// "work with our growth team", a KYC Analyst listing "internship programme" in its
+// boilerplate. Observed live — RemoteOK/WWR/HN produced only false positives this way.
+// A posting that never names the role in its title is not the role.
 export function isIntern(j: Job): boolean {
-  const t = titleText(j);
-  const b = broadText(j);
-  // Require intern signal in TITLE preferred; otherwise allow tag/description but only via exact patterns.
-  return INTERN_PATTERNS.some((re) => re.test(t)) || INTERN_PATTERNS.some((re) => re.test(b));
+  return INTERN_PATTERNS.some((re) => re.test(titleText(j)));
 }
 
 export function isProductOrOps(j: Job): boolean {
-  return ROLE_PATTERNS.some((re) => re.test(broadText(j)));
+  return ROLE_PATTERNS.some((re) => re.test(titleText(j)));
 }
 
 export function isHardRejected(j: Job): boolean {
