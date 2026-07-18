@@ -40,6 +40,11 @@ async function fetchForm(url: string): Promise<{ html: string; finalUrl: string 
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`form fetch ${res.status}`);
+  // A closed form 200s but redirects to /closedform, which carries no form data —
+  // say so instead of letting it fall through to "not a public Google Form".
+  if (new URL(res.url).pathname.endsWith('/closedform')) {
+    throw new Error('this form is closed — it is no longer accepting responses');
+  }
   return { html: await res.text(), finalUrl: res.url };
 }
 
