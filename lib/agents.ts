@@ -35,6 +35,15 @@ export const AGENTS: AgentMeta[] = [
     status: 'live',
   },
   {
+    id: 'whatsapp',
+    name: 'WhatsApp Watcher',
+    description:
+      'A linked-device bridge reads your allowlisted job groups; matching posts become tracked URLs or leads. Prepares only — never applies for you.',
+    kind: 'webhook',
+    cadence: 'on group message',
+    status: 'live',
+  },
+  {
     id: 'tailorer',
     name: 'Resume Tailorer',
     description: 'Per tracked URL: scrape JD → tailor bullets → render PDF → write a cold blurb.',

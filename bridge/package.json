@@ -1,0 +1,15 @@
+{
+  "name": "intern-agent-whatsapp-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Always-on WhatsApp linked-device bridge. Watches allowlisted job groups and POSTs candidate postings to the intern-agent ingest endpoint. Runs OUTSIDE Vercel.",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "baileys": "6.7.24",
+    "pino": "^9.5.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}

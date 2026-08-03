@@ -13,6 +13,7 @@ import {
   saveTracked,
   updateFundingStatus,
   updateTracked,
+  updateWhatsappLeadStatus,
   urlId,
 } from './storage';
 import { classifyUrl, extractUrls, TIER_EMOJI } from './classify';
@@ -23,10 +24,11 @@ import { runTailorPipeline } from './pipeline';
 import { runDiscovery } from './discover';
 import { findContact } from './contact';
 import { draftOutreach, runFundingScan } from './funding';
-import type { FundingItem, TrackedUrl } from './types';
+import type { FundingItem, TrackedUrl, WhatsappLead } from './types';
 
 const VALID_STATUSES: TrackedUrl['status'][] = ['new', 'drafted', 'submitted', 'rejected', 'skipped'];
 const VALID_FUNDING_STATUSES: FundingItem['status'][] = ['new', 'contacted', 'skipped'];
+const VALID_LEAD_STATUSES: WhatsappLead['status'][] = ['new', 'contacted', 'skipped'];
 
 export type AddUrlState = { ok: boolean; message: string };
 
@@ -179,6 +181,16 @@ export async function setFundingStatus(formData: FormData): Promise<void> {
   if (typeof id !== 'string' || typeof status !== 'string') return;
   if (!VALID_FUNDING_STATUSES.includes(status as FundingItem['status'])) return;
   await updateFundingStatus(id, status as FundingItem['status']);
+  revalidatePath('/');
+}
+
+/** Mark a URL-less WhatsApp lead (email/DM apply route) as handled. */
+export async function setWhatsappLeadStatus(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  const status = formData.get('status');
+  if (typeof id !== 'string' || typeof status !== 'string') return;
+  if (!VALID_LEAD_STATUSES.includes(status as WhatsappLead['status'])) return;
+  await updateWhatsappLeadStatus(id, status as WhatsappLead['status']);
   revalidatePath('/');
 }
 

@@ -1,0 +1,4 @@
+# The WhatsApp bridge is a standalone always-on process with its own package.json.
+# It runs off-platform (it needs a long-lived socket and on-disk auth state), so it is
+# never part of a Vercel deployment — and its node_modules is 58MB of upload for nothing.
+bridge

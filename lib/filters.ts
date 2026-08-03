@@ -3,7 +3,10 @@ import type { Job } from './types';
 // Strict non-tech intern filter. Word-boundary matching so "intern" never matches "internal".
 
 // Patterns must be word-bounded. Use `\b` regex.
-const INTERN_PATTERNS: RegExp[] = [
+// Exported so lib/whatsapp/match.ts scores free-text group posts against the *same*
+// spec as the job boards. Two divergent copies of "what counts as a target role" is
+// exactly how the Chief-of-Staff bug survived unnoticed in two places.
+export const INTERN_PATTERNS: RegExp[] = [
   /\bintern\b/i,
   /\binternship\b/i,
   /\bapm\b/i,
@@ -16,7 +19,7 @@ const INTERN_PATTERNS: RegExp[] = [
 ];
 
 // At least one role keyword must appear in the TITLE. See isProductOrOps.
-const ROLE_PATTERNS: RegExp[] = [
+export const ROLE_PATTERNS: RegExp[] = [
   /\bproduct\b/i,
   /\bstrategy\b/i,
   /\bstrategic\b/i,
@@ -35,7 +38,7 @@ const ROLE_PATTERNS: RegExp[] = [
 ];
 
 // If a hard-reject term appears anywhere in title, kill it. (Description excludes are too noisy.)
-const HARD_REJECT_TITLE_PATTERNS: RegExp[] = [
+export const HARD_REJECT_TITLE_PATTERNS: RegExp[] = [
   /\b(software|frontend|backend|full[- ]?stack|mobile|ios|android|qa|test|security|platform|infrastructure|cloud|data|ml|ai|devops|sre)\s+(engineer|developer)\b/i,
   /\bengineer(ing)?\b/i,
   /\bdeveloper\b/i,
@@ -81,7 +84,7 @@ const HARD_REJECT_TITLE_PATTERNS: RegExp[] = [
 
 // Description-level excludes only fire when title also includes excluded role.
 // Kept short and word-bounded to avoid noise.
-const REMOTE_PATTERNS: RegExp[] = [
+export const REMOTE_PATTERNS: RegExp[] = [
   /\bremote\b/i,
   /\banywhere\b/i,
   /\bworldwide\b/i,

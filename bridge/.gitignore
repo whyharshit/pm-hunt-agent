@@ -1,0 +1,4 @@
+node_modules/
+# WhatsApp session credentials — pairing this device's keys. Never commit.
+auth/
+.env

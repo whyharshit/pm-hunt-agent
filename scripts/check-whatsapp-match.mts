@@ -1,0 +1,158 @@
+/**
+ * WhatsApp matcher contract check — run with:  npx tsx scripts/check-whatsapp-match.mts
+ *
+ * Sibling of check-filters.mts. Group posts are free text with no title field, so
+ * lib/whatsapp/match.ts reconstructs a role line and anchors on that. The posts below
+ * ARE the spec for what the bridge is allowed to auto-track — they are written in the
+ * shapes these groups actually use (labelled blocks, emoji headers, bulk multi-role
+ * dumps, one-liners). Update them when the goal changes.
+ */
+import { matchWhatsappPost } from '../lib/whatsapp/match';
+
+type Case = { name: string; text: string };
+
+// Real-shaped posts the agent MUST pick up.
+const shouldMatch: Case[] = [
+  {
+    name: 'labelled block, form link',
+    text: `*Hiring Alert*
+Role: Product Management Intern
+Company: Acme Labs
+Location: Remote
+Stipend: 25k/month
+Apply: https://forms.gle/abc123`,
+  },
+  {
+    name: 'emoji header, email apply',
+    text: `🚨 INTERNSHIP OPENING 🚨
+Founder's Office Intern
+Fully remote · 6 months
+Share your CV at careers@acme.io`,
+  },
+  {
+    name: 'one-liner with DM ask',
+    text: `We are hiring a Business Operations Intern (work from home). DM me your resume.`,
+  },
+  {
+    name: 'bulk post — target role listed beside rejected ones',
+    text: `Openings: Software Engineer Intern, Product Intern, Graphic Designer
+Location: Remote
+Apply: https://boards.greenhouse.io/acme/jobs/1`,
+  },
+  {
+    name: 'signals split across the role line',
+    text: `Hiring for: Internship — Product & Strategy
+Remote role, apply at https://jobs.lever.co/acme/xyz`,
+  },
+  {
+    name: 'chief of staff (the bug check-filters caught, in WhatsApp shape)',
+    text: `Position: Chief of Staff
+Company: Acme
+Mode: Remote
+Mail hr@acme.io`,
+  },
+  {
+    name: 'APM with company label that would trip a naive reject',
+    text: `Role: APM Intern
+Company: Lead Squared
+Location: Work from home
+https://forms.gle/xyz`,
+  },
+];
+
+// Posts that MUST NOT be auto-tracked.
+const shouldReject: Case[] = [
+  {
+    name: 'tech intern only',
+    text: `Role: Software Engineer Intern
+Company: Acme
+Remote
+https://forms.gle/abc`,
+  },
+  {
+    name: 'senior product role',
+    text: `Hiring: Senior Product Manager
+Remote
+Apply https://jobs.lever.co/acme/pm`,
+  },
+  {
+    name: 'onsite product intern — no remote signal',
+    text: `Role: Product Intern
+Company: Acme
+Location: Bengaluru, in-office
+Apply: https://forms.gle/abc`,
+  },
+  {
+    name: 'body merely mentions the words (the broad-text trap)',
+    text: `Role: Video Editor
+Company: Acme
+You will work closely with our product and growth team, internship culture, remote.
+Apply: https://forms.gle/abc`,
+  },
+  {
+    name: 'designer intern',
+    text: `Product Designer Intern
+Remote
+DM me`,
+  },
+  {
+    name: 'head of product',
+    text: `Opening: Head of Product
+Remote-first company
+careers@acme.io`,
+  },
+  {
+    name: 'not a job post at all',
+    text: `Good morning everyone 🙏 please share this group with your friends looking for opportunities`,
+  },
+  {
+    name: 'sales role',
+    text: `Hiring: Business Development Executive
+Work from home
+Send CV to hr@acme.io`,
+  },
+];
+
+let bad = 0;
+
+console.log('--- MUST MATCH ---');
+for (const c of shouldMatch) {
+  const m = matchWhatsappPost(c.text);
+  if (!m.matched) bad++;
+  console.log(
+    `${m.matched ? '  ok  ' : ' MISS '} ${c.name}\n         role="${m.roleLine}"${
+      m.matched ? ` → matched "${m.matchedRole}"` : ` → ${m.reasons.join('; ')}`
+    }`
+  );
+}
+
+console.log('\n--- MUST REJECT ---');
+for (const c of shouldReject) {
+  const m = matchWhatsappPost(c.text);
+  if (m.matched) bad++;
+  console.log(
+    `${!m.matched ? '  ok  ' : ' LEAK '} ${c.name}\n         role="${m.roleLine}" → ${
+      m.matched ? `matched "${m.matchedRole}"` : m.reasons.join('; ')
+    }`
+  );
+}
+
+// Apply-target extraction is what decides tracked-URL vs lead — assert it directly.
+console.log('\n--- APPLY TARGETS ---');
+const targets = matchWhatsappPost(shouldMatch[1].text);
+const targetsOk =
+  targets.urls.length === 0 && targets.emails.includes('careers@acme.io') && targets.hasDmAsk;
+if (!targetsOk) bad++;
+console.log(
+  `${targetsOk ? '  ok  ' : ' FAIL '} email-only post → urls=${targets.urls.length} emails=${JSON.stringify(
+    targets.emails
+  )} dmAsk=${targets.hasDmAsk}`
+);
+
+const linked = matchWhatsappPost(shouldMatch[0].text);
+const linkedOk = linked.urls.includes('https://forms.gle/abc123');
+if (!linkedOk) bad++;
+console.log(`${linkedOk ? '  ok  ' : ' FAIL '} link post → urls=${JSON.stringify(linked.urls)}`);
+
+console.log(`\n${bad === 0 ? 'ALL GOOD' : `${bad} FAILURES`}`);
+process.exit(bad === 0 ? 0 : 1);

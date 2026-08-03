@@ -18,7 +18,7 @@ export type TrackedUrl = {
   id: string;
   url: string;
   tier: Tier;
-  source: 'telegram' | 'manual';
+  source: 'telegram' | 'manual' | 'whatsapp';
   addedAt: string;
   status: 'new' | 'drafted' | 'submitted' | 'rejected' | 'skipped';
   note?: string;
@@ -139,6 +139,27 @@ export type GformPrefill = {
   fieldCount: number;
   generatedAt: string;
   model: string;
+};
+
+/**
+ * A matched WhatsApp group post with no application URL — the "mail your CV to
+ * hr@x.com" / "DM me" shape, which is most of what these groups actually carry.
+ * It can't enter the URL-keyed tracker, so it gets its own row and stays a lead.
+ */
+export type WhatsappLead = {
+  id: string;
+  /** Group subject line as the bridge saw it. */
+  group: string;
+  /** Sender's push name if WhatsApp exposed one. Never a phone number. */
+  sender?: string;
+  text: string;
+  /** The title-equivalent surface the match was anchored on. */
+  roleLine: string;
+  matchedRole?: string;
+  emails: string[];
+  hasDmAsk: boolean;
+  postedAt: string;
+  status: 'new' | 'contacted' | 'skipped';
 };
 
 export type AgentRun = {

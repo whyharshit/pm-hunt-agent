@@ -42,6 +42,9 @@ yarn-error.log*
 # don't commit hand-off docs that contain personal context
 NEXT_SESSION.md
 
+# saved prod page dumps used for one-off render checks
+dash.html
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

@@ -12,6 +12,7 @@ import type {
   StoredPdf,
   TailoredResume,
   TrackedUrl,
+  WhatsappLead,
 } from './types';
 
 let _redis: Redis | null = null;
@@ -29,12 +30,17 @@ const JOBS_INDEX = 'jobs:index';
 const TRACKER_INDEX = 'tracker:index';
 const FUNDING_INDEX = 'funding:index';
 const FUNDING_SEEN = 'funding:seen';
+const WA_LEAD_INDEX = 'walead:index';
+/** Group chatter is high-volume, so dedupe keys expire instead of growing a set forever. */
+const WA_SEEN_TTL_SECONDS = 60 * 60 * 24 * 45;
 const jobKey = (id: string) => `job:${id}`;
 const trackerKey = (id: string) => `tracker:${id}`;
 const fundingKey = (id: string) => `funding:${id}`;
 const fundingOutreachKey = (id: string) => `funding-outreach:${id}`;
 const fundingContactKey = (id: string) => `funding-contact:${id}`;
 const gformKey = (id: string) => `gform:${id}`;
+const waSeenKey = (id: string) => `wa:seen:${id}`;
+const waLeadKey = (id: string) => `walead:${id}`;
 const agentKey = (id: string) => `agent:${id}`;
 const jdKey = (id: string) => `jd:${id}`;
 const tailoredKey = (id: string) => `tailored:${id}`;
@@ -306,6 +312,59 @@ export async function getGformPrefills(ids: string[]): Promise<Map<string, Gform
     out.set(id, typeof raw === 'string' ? (JSON.parse(raw) as GformPrefill) : raw);
   });
   return out;
+}
+
+/**
+ * Atomically claim WhatsApp message ids, returning only the ones not seen before.
+ * `SET NX` is the claim — two bridge instances (or a retried POST) can't both process
+ * the same message. Keys carry a TTL rather than living in an unbounded set, because
+ * unlike the daily job feeds this ingests continuous group traffic.
+ */
+export async function claimWhatsappMessages(ids: string[]): Promise<Set<string>> {
+  const fresh = new Set<string>();
+  if (ids.length === 0) return fresh;
+  const unique = Array.from(new Set(ids));
+  const pipe = redis().pipeline();
+  for (const id of unique) pipe.set(waSeenKey(id), 1, { nx: true, ex: WA_SEEN_TTL_SECONDS });
+  const res = (await pipe.exec()) as (string | null)[];
+  unique.forEach((id, i) => {
+    if (res[i] !== null) fresh.add(id);
+  });
+  return fresh;
+}
+
+export async function saveWhatsappLeads(leads: WhatsappLead[]): Promise<void> {
+  if (leads.length === 0) return;
+  const pipe = redis().pipeline();
+  for (const l of leads) {
+    pipe.set(waLeadKey(l.id), JSON.stringify(l));
+    pipe.zadd(WA_LEAD_INDEX, { score: +new Date(l.postedAt), member: l.id });
+  }
+  await pipe.exec();
+}
+
+export async function getRecentWhatsappLeads(limit = 50): Promise<WhatsappLead[]> {
+  const ids = (await redis().zrange(WA_LEAD_INDEX, 0, limit - 1, { rev: true })) as string[];
+  if (ids.length === 0) return [];
+  const pipe = redis().pipeline();
+  for (const id of ids) pipe.get(waLeadKey(id));
+  const raws = (await pipe.exec()) as (string | WhatsappLead | null)[];
+  const out: WhatsappLead[] = [];
+  for (const raw of raws) {
+    if (!raw) continue;
+    out.push(typeof raw === 'string' ? (JSON.parse(raw) as WhatsappLead) : raw);
+  }
+  return out;
+}
+
+export async function updateWhatsappLeadStatus(
+  id: string,
+  status: WhatsappLead['status']
+): Promise<void> {
+  const raw = await redis().get(waLeadKey(id));
+  if (!raw) return;
+  const existing = typeof raw === 'string' ? (JSON.parse(raw) as WhatsappLead) : (raw as WhatsappLead);
+  await redis().set(waLeadKey(id), JSON.stringify({ ...existing, status }));
 }
 
 export type TrackedArtifacts = { hasPdf: boolean; blurb: Blurb | null };

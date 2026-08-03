@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Standalone always-on process with its own package.json — not part of the app build.
+    "bridge/**",
   ]),
 ]);
 
