@@ -58,6 +58,16 @@ the agent depends on it.
    group names. **Leaving it empty scans every group you are in**, including personal
    ones. Set it.
 
+   Guessing at names silently watches nothing. Once paired, list the real ones:
+
+   ```sh
+   npm run groups
+   ```
+
+   It prints every group the device can see, ticks the ones the current `WA_GROUPS`
+   would watch, and exits. **Stop the bridge first** — two processes sharing `auth/`
+   can corrupt the session keys.
+
 3. **Pair the device:**
 
    ```sh

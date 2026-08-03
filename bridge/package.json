@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Always-on WhatsApp linked-device bridge. Watches allowlisted job groups and POSTs candidate postings to the intern-agent ingest endpoint. Runs OUTSIDE Vercel.",
   "scripts": {
-    "start": "node index.mjs"
+    "start": "node index.mjs",
+    "groups": "node groups.mjs"
   },
   "dependencies": {
     "baileys": "6.7.24",
