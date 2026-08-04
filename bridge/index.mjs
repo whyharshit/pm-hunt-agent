@@ -2,9 +2,9 @@
  * WhatsApp → intern-agent bridge.
  *
  * Pairs as a LINKED DEVICE on your personal WhatsApp (same mechanism as WhatsApp Web),
- * watches the job groups you allowlist, and POSTs candidate postings to the agent's
- * /api/whatsapp/ingest endpoint. It only ever reads; it never sends a message, never
- * joins a group, and never applies to anything.
+ * watches the job groups AND channels you allowlist, and POSTs candidate postings to the
+ * agent's /api/whatsapp/ingest endpoint. It only ever reads; it never sends a message,
+ * never joins a group, and never applies to anything.
  *
  * This runs OUTSIDE Vercel on purpose: it needs a long-lived socket and on-disk auth
  * state, neither of which a serverless function has. Any always-on box works.
@@ -20,6 +20,7 @@ import makeWASocket, {
   extractMessageContent,
   fetchLatestBaileysVersion,
   isJidGroup,
+  isJidNewsletter,
   useMultiFileAuthState,
   Browsers,
 } from 'baileys';
@@ -35,7 +36,7 @@ loadDotEnv(resolve(HERE, '.env'));
 const INGEST_URL = required('INGEST_URL');
 const INGEST_SECRET = required('INGEST_SECRET');
 const AUTH_DIR = process.env.AUTH_DIR || resolve(HERE, 'auth');
-/** Comma-separated case-insensitive substrings of group names. Empty = every group. */
+/** Comma-separated case-insensitive substrings of group/channel names. Empty = all. */
 const GROUP_FILTERS = (process.env.WA_GROUPS || '')
   .split(',')
   .map((s) => s.trim().toLowerCase())
@@ -111,8 +112,11 @@ async function groupName(sock, jid) {
   const cached = groupNames.get(jid);
   if (cached) return cached;
   try {
-    const meta = await sock.groupMetadata(jid);
-    const name = meta?.subject || jid;
+    // Channels ("newsletters") have no groupMetadata — their name lives in
+    // newsletter metadata instead. Same cache either way.
+    const name = isJidNewsletter(jid)
+      ? (await sock.newsletterMetadata('jid', jid))?.name || jid
+      : (await sock.groupMetadata(jid))?.subject || jid;
     groupNames.set(jid, name);
     return name;
   } catch {
@@ -201,7 +205,9 @@ async function start() {
       reconnectDelay = 2000;
       console.log(
         `[bridge] connected. Watching ${
-          GROUP_FILTERS.length ? `groups matching: ${GROUP_FILTERS.join(', ')}` : 'ALL groups'
+          GROUP_FILTERS.length
+            ? `groups/channels matching: ${GROUP_FILTERS.join(', ')}`
+            : 'ALL groups and channels'
         }`
       );
     }
@@ -226,7 +232,9 @@ async function start() {
 
     for (const msg of messages) {
       const jid = msg.key?.remoteJid;
-      if (!jid || !isJidGroup(jid)) continue;
+      // Channels (@newsletter) are one-way broadcasts — exactly where the job
+      // pages the user follows post. Treated identically to groups downstream.
+      if (!jid || (!isJidGroup(jid) && !isJidNewsletter(jid))) continue;
       if (msg.key.fromMe) continue;
 
       const text = textOf(msg);

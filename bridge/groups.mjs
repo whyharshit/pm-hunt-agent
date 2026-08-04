@@ -3,6 +3,10 @@
  * substrings instead of guesses. Prints the name, whether the current WA_GROUPS
  * would watch it, and exits — it never enqueues or POSTs anything.
  *
+ * GROUPS ONLY: followed channels (@newsletter) never appear here — Baileys 6.7.24
+ * has no "list my channels" call. The bridge still watches them; check channel
+ * names against WA_GROUPS by hand.
+ *
  * Run AFTER pairing (it reuses the same auth dir as the bridge):
  *   npm run groups
  */
@@ -88,7 +92,10 @@ sock.ev.on('connection.update', async ({ connection, lastDisconnect }) => {
     clearTimeout(bail);
 
     if (groups.length === 0) {
-      console.log('\n[groups] this account is in no groups yet.\n');
+      console.log(
+        '\n[groups] this account is in no groups yet. (Followed channels are not' +
+          ' listable and never show here — the bridge watches them regardless.)\n'
+      );
     } else {
       const hits = groups.filter(watched);
       console.log(`\n[groups] ${groups.length} group(s) visible to this device:\n`);

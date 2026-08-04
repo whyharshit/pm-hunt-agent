@@ -1,10 +1,11 @@
 # WhatsApp Bridge
 
-Watches your WhatsApp job groups and feeds matching postings into the intern-agent
-tracker. Runs **outside Vercel** — it needs a long-lived socket and on-disk auth state.
+Watches your WhatsApp job groups **and channels** and feeds matching postings into the
+intern-agent tracker. Runs **outside Vercel** — it needs a long-lived socket and on-disk
+auth state.
 
 ```
-WhatsApp groups
+WhatsApp groups + channels
       │  linked device (Baileys)
       ▼
   bridge/  ──POST──▶  /api/whatsapp/ingest  ──▶  tracker + Telegram ping
@@ -55,8 +56,8 @@ the agent depends on it.
    ```
 
    `WA_GROUPS` is a comma-separated list of case-insensitive substrings matched against
-   group names. **Leaving it empty scans every group you are in**, including personal
-   ones. Set it.
+   group **and channel** names. **Leaving it empty scans every group and channel you are
+   in**, including personal ones. Set it.
 
    Guessing at names silently watches nothing. Once paired, list the real ones:
 
@@ -66,7 +67,8 @@ the agent depends on it.
 
    It prints every group the device can see, ticks the ones the current `WA_GROUPS`
    would watch, and exits. **Stop the bridge first** — two processes sharing `auth/`
-   can corrupt the session keys.
+   can corrupt the session keys. **Channels never appear in this list** (Baileys has
+   no "list my channels" call) — check channel names against `WA_GROUPS` by hand.
 
 3. **Pair the device:**
 
@@ -84,7 +86,7 @@ the agent depends on it.
 
 ## What it does per message
 
-1. Group messages only; skips your own.
+1. Group and channel messages only; skips your own.
 2. A broad keyword gate runs **locally**, so ordinary chatter never leaves the machine.
    This gate is deliberately dumber than the server's matcher — it's a bandwidth filter,
    not the relevance spec.
