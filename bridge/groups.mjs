@@ -45,7 +45,9 @@ function watched(name) {
 }
 
 const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-if (!state.creds?.registered) {
+// `creds.registered` only turns true in the pairing-code flow — a QR-paired session
+// keeps it false forever, so the presence of `me` is the real "paired" signal.
+if (!state.creds?.me) {
   console.error('[groups] not paired yet — run `npm start` and scan the QR first.');
   process.exit(1);
 }
