@@ -58,6 +58,23 @@ Company: Lead Squared
 Location: Work from home
 https://forms.gle/xyz`,
   },
+  // Data / VC / AI — added 2026-08-05, same decision as check-filters.mts.
+  {
+    name: 'data analyst intern (channel-post shape)',
+    text: `📊 Data Analyst Intern
+Company: Acme Fintech
+Stipend: 20k · Remote
+Apply: https://forms.gle/data123`,
+  },
+  {
+    name: 'VC intern, email apply',
+    text: `Venture Capital Intern needed at an early-stage fund.
+Remote friendly. Send your CV to talent@fund.vc`,
+  },
+  {
+    name: 'AI research intern one-liner',
+    text: `We're hiring an AI Research Intern (work from home) — DM me your resume.`,
+  },
 ];
 
 // Posts that MUST NOT be auto-tracked.
@@ -110,6 +127,19 @@ careers@acme.io`,
     text: `Hiring: Business Development Executive
 Work from home
 Send CV to hr@acme.io`,
+  },
+  {
+    name: 'data ENTRY intern (near-miss for the new data patterns)',
+    text: `Role: Data Entry Intern
+Remote work
+Apply: https://forms.gle/entry1`,
+  },
+  {
+    name: 'ML engineer intern (engineering stays dead)',
+    text: `Machine Learning Engineer Intern
+Company: Acme AI
+Remote
+https://forms.gle/mle1`,
   },
 ];
 

@@ -35,6 +35,17 @@ const shouldPass: Job[] = [
   j('Product Operations Trainee'),
   j('Partnerships Intern'),
   j('Go-To-Market Intern'),
+  // Data / VC / AI — added 2026-08-05 by explicit user decision.
+  j('Data Analyst Intern'),
+  j('Data Science Intern'),
+  j('Analytics Intern'),
+  j('Business Intelligence Trainee'),
+  j('Venture Capital Intern'),
+  j('VC Analyst Intern'),
+  j('Investment Analyst Intern'),
+  j('AI Research Intern'),
+  j('Machine Learning Intern'),
+  j('GenAI Intern'),
 ];
 
 // The false positives + off-target roles — these MUST NOT pass.
@@ -49,6 +60,13 @@ const shouldReject: Job[] = [
   j('Head of Product'),
   j('Product Designer Intern'),
   j('Product Manager Intern', { location: 'New York, onsite', description: 'Onsite only.', tags: [] }),
+  // Data/VC/AI near-misses that must stay dead.
+  j('Data Entry Intern'),
+  j('Data Engineer Intern'),
+  j('AI Engineer Intern'),
+  j('Machine Learning Engineer Intern'),
+  j('Senior Data Analyst'),
+  j('AI Content Writer Intern'),
 ];
 
 let bad = 0;

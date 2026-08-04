@@ -35,6 +35,24 @@ export const ROLE_PATTERNS: RegExp[] = [
   /\bgtm\b/i,
   /\bbiz ops\b/i,
   /\bapm\b/i,
+  // Data (2026-08-05). Deliberately NOT a bare /\bdata\b/ — that admits "Data Entry
+  // Intern". Engineering variants stay dead via the engineer/developer hard-rejects.
+  /\bdata (analyst|analytics|science|scientist)\b/i,
+  /\banalytics\b/i,
+  /\bbusiness intelligence\b/i,
+  // VC (2026-08-05).
+  /\bventure capital\b/i,
+  /\bvc\b/i,
+  /\bventures?\b/i,
+  /\binvestment (analyst|associate|team|intern)\b/i,
+  // AI (2026-08-05). "AI Engineer" et al. still die on the engineer hard-reject —
+  // the goal is AI-adjacent non-engineering roles (AI product, AI research, AI ops).
+  /\bai\b/i,
+  /\bartificial intelligence\b/i,
+  /\bmachine learning\b/i,
+  /\bml\b/i,
+  /\bgen(erative)?[\s-]?ai\b/i,
+  /\bllm\b/i,
 ];
 
 // If a hard-reject term appears anywhere in title, kill it. (Description excludes are too noisy.)
