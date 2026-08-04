@@ -2,6 +2,8 @@ import { runDiscovery } from '@/lib/discover';
 import { fetchRemoteOk } from '@/lib/sources/remoteok';
 import { fetchWeWorkRemotely } from '@/lib/sources/wwr';
 import { fetchHnWhoIsHiring } from '@/lib/sources/hn';
+import { fetchInternshala } from '@/lib/sources/internshala';
+import { fetchLinkedInViaSerper } from '@/lib/sources/linkedin';
 import { isIntern, isProductOrOps, isRemote, isHardRejected } from '@/lib/filters';
 
 export const dynamic = 'force-dynamic';
@@ -21,12 +23,14 @@ export async function GET(request: Request) {
   const debug = url.searchParams.get('debug') === 'true';
 
   if (debug) {
-    const [remoteOk, wwr, hn] = await Promise.all([
+    const [remoteOk, wwr, hn, internshala, linkedin] = await Promise.all([
       fetchRemoteOk().catch(() => []),
       fetchWeWorkRemotely().catch(() => []),
       fetchHnWhoIsHiring().catch(() => []),
+      fetchInternshala().catch(() => []),
+      fetchLinkedInViaSerper().catch(() => []),
     ]);
-    const all = [...remoteOk, ...wwr, ...hn];
+    const all = [...remoteOk, ...wwr, ...hn, ...internshala, ...linkedin];
 
     const internOnly = all.filter(isIntern);
     const internAndRole = internOnly.filter(isProductOrOps);
@@ -37,7 +41,13 @@ export async function GET(request: Request) {
     return Response.json({
       counts: {
         fetched: all.length,
-        fetchedBySource: { remoteok: remoteOk.length, wwr: wwr.length, hn: hn.length },
+        fetchedBySource: {
+          remoteok: remoteOk.length,
+          wwr: wwr.length,
+          hn: hn.length,
+          internshala: internshala.length,
+          linkedin: linkedin.length,
+        },
         passIntern: internOnly.length,
         passInternAndRole: internAndRole.length,
         passInternAndRoleAndRemote: internAndRoleAndRemote.length,

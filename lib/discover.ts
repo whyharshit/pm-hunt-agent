@@ -1,6 +1,8 @@
 import { fetchRemoteOk } from './sources/remoteok';
 import { fetchWeWorkRemotely } from './sources/wwr';
 import { fetchHnWhoIsHiring } from './sources/hn';
+import { fetchInternshala } from './sources/internshala';
+import { fetchLinkedInViaSerper } from './sources/linkedin';
 import { passes } from './filters';
 import { getSeenIds, markSeen, recordAgentRun, saveJobs, setAgentRunning } from './storage';
 import { sendTelegram, formatDigest } from './telegram';
@@ -28,13 +30,21 @@ export async function runDiscovery(opts: { notify?: boolean } = {}): Promise<Dis
 
   try {
     // Folded into this one cron rather than given their own: Hobby caps at 2 daily crons.
-    const [remoteOk, wwr, hn] = await Promise.all([
+    const [remoteOk, wwr, hn, internshala, linkedin] = await Promise.all([
       safe('remoteok', fetchRemoteOk, errors),
       safe('wwr', fetchWeWorkRemotely, errors),
       safe('hn', fetchHnWhoIsHiring, errors),
+      safe('internshala', fetchInternshala, errors),
+      safe('linkedin', fetchLinkedInViaSerper, errors),
     ]);
 
-    const all: Job[] = [...(remoteOk ?? []), ...(wwr ?? []), ...(hn ?? [])];
+    const all: Job[] = [
+      ...(remoteOk ?? []),
+      ...(wwr ?? []),
+      ...(hn ?? []),
+      ...(internshala ?? []),
+      ...(linkedin ?? []),
+    ];
     const matching = all.filter(passes);
 
     const seen = await getSeenIds();
