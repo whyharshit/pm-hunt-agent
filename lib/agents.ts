@@ -20,7 +20,7 @@ export const AGENTS: AgentMeta[] = [
   {
     id: 'discover',
     name: 'Discover',
-    description: 'Pulls remote intern roles (product/ops/data/VC/AI) from RemoteOK + We Work Remotely + HN Who\'s Hiring + Internshala + Unstop + LinkedIn-via-Serper, filters them, and saves new matches.',
+    description: 'Pulls remote intern roles (product/ops/data/VC/AI) from RemoteOK + We Work Remotely + HN Who\'s Hiring + Internshala + Unstop + YC + LinkedIn (Serper + Apify comment-mining), filters them, and saves new matches.',
     kind: 'cron',
     cadence: 'daily 09:00 UTC',
     status: 'live',

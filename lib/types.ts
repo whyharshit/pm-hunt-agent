@@ -1,6 +1,15 @@
 export type Job = {
   id: string;
-  source: 'remoteok' | 'hn' | 'wwr' | 'wellfound' | 'yc' | 'internshala' | 'linkedin' | 'unstop';
+  source:
+    | 'remoteok'
+    | 'hn'
+    | 'wwr'
+    | 'wellfound'
+    | 'yc'
+    | 'internshala'
+    | 'linkedin'
+    | 'unstop'
+    | 'apify';
   title: string;
   company: string;
   location: string;

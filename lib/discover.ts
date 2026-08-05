@@ -4,6 +4,8 @@ import { fetchHnWhoIsHiring } from './sources/hn';
 import { fetchInternshala } from './sources/internshala';
 import { fetchLinkedInViaSerper } from './sources/linkedin';
 import { fetchUnstop } from './sources/unstop';
+import { fetchYc } from './sources/yc';
+import { fetchLinkedInPostsViaApify } from './sources/apify';
 import { passes } from './filters';
 import { getSeenIds, markSeen, recordAgentRun, saveJobs, setAgentRunning } from './storage';
 import { sendTelegram, formatDigest } from './telegram';
@@ -31,13 +33,15 @@ export async function runDiscovery(opts: { notify?: boolean } = {}): Promise<Dis
 
   try {
     // Folded into this one cron rather than given their own: Hobby caps at 2 daily crons.
-    const [remoteOk, wwr, hn, internshala, linkedin, unstop] = await Promise.all([
+    const [remoteOk, wwr, hn, internshala, linkedin, unstop, yc, apify] = await Promise.all([
       safe('remoteok', fetchRemoteOk, errors),
       safe('wwr', fetchWeWorkRemotely, errors),
       safe('hn', fetchHnWhoIsHiring, errors),
       safe('internshala', fetchInternshala, errors),
       safe('linkedin', fetchLinkedInViaSerper, errors),
       safe('unstop', fetchUnstop, errors),
+      safe('yc', fetchYc, errors),
+      safe('apify', fetchLinkedInPostsViaApify, errors),
     ]);
 
     const all: Job[] = [
@@ -47,6 +51,8 @@ export async function runDiscovery(opts: { notify?: boolean } = {}): Promise<Dis
       ...(internshala ?? []),
       ...(linkedin ?? []),
       ...(unstop ?? []),
+      ...(yc ?? []),
+      ...(apify ?? []),
     ];
     const matching = all.filter(passes);
 

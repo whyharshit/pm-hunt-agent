@@ -5,6 +5,8 @@ import { fetchHnWhoIsHiring } from '@/lib/sources/hn';
 import { fetchInternshala } from '@/lib/sources/internshala';
 import { fetchLinkedInViaSerper } from '@/lib/sources/linkedin';
 import { fetchUnstop } from '@/lib/sources/unstop';
+import { fetchYc } from '@/lib/sources/yc';
+import { fetchLinkedInPostsViaApify } from '@/lib/sources/apify';
 import { isIntern, isProductOrOps, isRemote, isHardRejected } from '@/lib/filters';
 
 export const dynamic = 'force-dynamic';
@@ -24,15 +26,26 @@ export async function GET(request: Request) {
   const debug = url.searchParams.get('debug') === 'true';
 
   if (debug) {
-    const [remoteOk, wwr, hn, internshala, linkedin, unstop] = await Promise.all([
+    const [remoteOk, wwr, hn, internshala, linkedin, unstop, yc, apify] = await Promise.all([
       fetchRemoteOk().catch(() => []),
       fetchWeWorkRemotely().catch(() => []),
       fetchHnWhoIsHiring().catch(() => []),
       fetchInternshala().catch(() => []),
       fetchLinkedInViaSerper().catch(() => []),
       fetchUnstop().catch(() => []),
+      fetchYc().catch(() => []),
+      fetchLinkedInPostsViaApify().catch(() => []),
     ]);
-    const all = [...remoteOk, ...wwr, ...hn, ...internshala, ...linkedin, ...unstop];
+    const all = [
+      ...remoteOk,
+      ...wwr,
+      ...hn,
+      ...internshala,
+      ...linkedin,
+      ...unstop,
+      ...yc,
+      ...apify,
+    ];
 
     const internOnly = all.filter(isIntern);
     const internAndRole = internOnly.filter(isProductOrOps);
@@ -50,6 +63,8 @@ export async function GET(request: Request) {
           internshala: internshala.length,
           linkedin: linkedin.length,
           unstop: unstop.length,
+          yc: yc.length,
+          apify: apify.length,
         },
         passIntern: internOnly.length,
         passInternAndRole: internAndRole.length,
