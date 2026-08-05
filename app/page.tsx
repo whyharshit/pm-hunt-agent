@@ -50,7 +50,12 @@ async function loadData() {
   try {
     const [tracked, jobs, agentRuns, funding, waLeads] = await Promise.all([
       getRecentTracked(50),
-      getRecentJobs(50),
+      // 50 was fine with three low-yield boards; with Internshala + Unstop + YC + Apify a
+      // single run now matches ~60, so the window silently hid rows we had just saved —
+      // the YC match (an older listing, and YC's are all months old) never appeared at all.
+      // Jobs are sorted by postedAt, so undersizing this drops the oldest matches, not the
+      // least relevant ones.
+      getRecentJobs(200),
       getAgentRuns(LIVE_AGENT_IDS),
       getRecentFunding(50),
       getRecentWhatsappLeads(50),
