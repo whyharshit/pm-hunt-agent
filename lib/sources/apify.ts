@@ -1,4 +1,4 @@
-import { ROLE_PATTERNS } from '../filters';
+import { HARD_REJECT_TITLE_PATTERNS, INTERN_PATTERNS, ROLE_PATTERNS } from '../filters';
 import { matchWhatsappPost } from '../whatsapp/match';
 import type { Job } from '../types';
 
@@ -21,10 +21,15 @@ import type { Job } from '../types';
 const ACTOR = 'harvestapi~linkedin-profile-comments';
 const ENDPOINT = `https://api.apify.com/v2/acts/${ACTOR}/run-sync-get-dataset-items`;
 
-// Cost control. The actor bills $0.002 per comment, and the free plan carries $5/month.
-// 20 comments × 3 profiles × 30 days ≈ $3.60/month, which fits. Raising this is the
-// first thing to check if Apify credit runs out unexpectedly.
-const MAX_ITEMS_PER_PROFILE = 20;
+// Cost control, and it is tight. The actor bills $0.002 per comment and the free plan
+// carries $5/month, so the daily cron costs `profiles × MAX_ITEMS × $0.06` per month:
+// 4 profiles × 15 = $3.60/month, which fits. At 20 it would be $4.80 — inside the plan
+// on paper, but with no headroom for a re-run or a fifth profile. Raise only alongside
+// the plan, and check here first if Apify credit runs out unexpectedly.
+const MAX_ITEMS_PER_PROFILE = 15;
+
+// A dashboard row needs a headline, not a paragraph.
+const MAX_TITLE_CHARS = 110;
 
 // The Discover cron runs on Vercel Hobby, where a function is killed at 60s. A sync
 // Apify run that hangs would take the whole cron down with it, so it is bounded well
@@ -39,6 +44,35 @@ type ApifyComment = {
     author?: { name?: string; info?: string; linkedinUrl?: string };
   };
 };
+
+const isIntern = (s: string) => INTERN_PATTERNS.some((re) => re.test(s));
+const isRole = (s: string) => ROLE_PATTERNS.some((re) => re.test(s));
+const isRejected = (s: string) => HARD_REJECT_TITLE_PATTERNS.some((re) => re.test(s));
+
+/**
+ * Pick a headline for the dashboard.
+ *
+ * matchWhatsappPost tests the whole reconstructed role line before its split parts, so
+ * when that whole line carries both signals it is returned verbatim — which for a chatty
+ * LinkedIn post is a three-line paragraph, useless as a row title. Narrow it back down to
+ * the shortest self-sufficient fragment, then fall back through progressively looser
+ * options. Whatever comes out must still satisfy Discover's title-anchored `passes()`,
+ * which re-tests the title alone, so a fragment is only accepted when it carries the
+ * signals by itself.
+ */
+function headline(roleLine: string, matchedRole: string): string {
+  const fragments = roleLine
+    .split(/\s+·\s+|(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const selfSufficient = fragments
+    .filter((f) => isIntern(f) && isRole(f) && !isRejected(f))
+    .sort((a, b) => a.length - b.length)[0];
+
+  const chosen = selfSufficient ?? matchedRole;
+  return chosen.length > MAX_TITLE_CHARS ? `${chosen.slice(0, MAX_TITLE_CHARS - 1).trimEnd()}…` : chosen;
+}
 
 function profiles(): string[] {
   return (process.env.APIFY_LINKEDIN_PROFILES ?? '')
@@ -87,13 +121,10 @@ export async function fetchLinkedInPostsViaApify(): Promise<Job[]> {
     if (seen.has(id)) continue; // several aggregators comment on the same post
     seen.add(id);
 
-    // matchWhatsappPost can match on a role signal carried by the surrounding surface
-    // rather than by matchedRole itself ("Internship: Product & Strategy" splits the two
-    // signals across phrases). Discover re-tests the title alone, so a bare matchedRole
-    // would be silently dropped there — fall back to the fuller role line in that case.
-    const title = ROLE_PATTERNS.some((re) => re.test(m.matchedRole as string))
-      ? (m.matchedRole as string)
-      : m.roleLine;
+    const title = headline(m.roleLine, m.matchedRole);
+    // Guard the contract with Discover: `passes()` re-tests the title on its own, so a
+    // headline that lost a signal during narrowing would be silently dropped downstream.
+    if (!isIntern(title) || !isRole(title) || isRejected(title)) continue;
 
     const applyUrl = m.urls[0];
     jobs.push({
