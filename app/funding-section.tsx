@@ -89,7 +89,8 @@ function SendRow({
   if (!mailerReady) {
     return (
       <p className="text-[11px] text-amber-700 dark:text-amber-400">
-        Sending is off — set <code>RESEND_API_KEY</code> and <code>MAIL_FROM</code> on Vercel to enable it.
+        Sending is off — set <code>GMAIL_USER</code> and <code>GMAIL_APP_PASSWORD</code> on Vercel to
+        send via Gmail, or <code>RESEND_API_KEY</code> and <code>MAIL_FROM</code> to send via Resend.
       </p>
     );
   }

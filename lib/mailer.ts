@@ -1,3 +1,4 @@
+import nodemailer from 'nodemailer';
 import { recordAgentRun, setAgentRunning } from './storage';
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
@@ -7,20 +8,54 @@ export type SendResult = { id: string; to: string };
 export class MailConfigError extends Error {}
 
 /**
- * Resend's REST API directly — one fetch, no SDK dependency for a single endpoint.
- * MAIL_FROM must be an address on a domain verified in Resend, e.g.
- * "Shivansh <hello@lovingroom.co>"; Resend rejects unverified senders outright.
+ * Two transports, Gmail first.
+ *
+ * Gmail SMTP needs no verified domain — the blocker that kept Resend unusable here, since
+ * a Resend account with zero verified domains can only mail its own owner. Sending from
+ * the user's real Gmail is also the better cold-outreach channel at this volume: a
+ * student's actual address reads genuine, while a freshly verified domain has no sending
+ * reputation and tends to land in spam. Gmail allows ~500/day, far beyond what this needs.
+ *
+ * Resend stays as the fallback for whenever a domain does get verified — better long-term
+ * deliverability and it keeps outreach out of the personal inbox.
+ *
+ * Note IMAP is NOT an option for either: it is a read protocol. Sending is SMTP.
  */
-function config(): { apiKey: string; from: string } {
+type Transport =
+  | { kind: 'gmail'; user: string; pass: string; from: string }
+  | { kind: 'resend'; apiKey: string; from: string };
+
+function config(): Transport {
+  const user = process.env.GMAIL_USER;
+  const pass = process.env.GMAIL_APP_PASSWORD;
+  if (user && pass) {
+    // Gmail rejects any From that isn't the authenticated account or one of its configured
+    // aliases, so MAIL_FROM deliberately cannot override the address here — only the
+    // display name, via MAIL_FROM_NAME.
+    const name = process.env.MAIL_FROM_NAME?.trim();
+    return { kind: 'gmail', user, pass, from: name ? `${name} <${user}>` : user };
+  }
+
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.MAIL_FROM;
-  if (!apiKey) throw new MailConfigError('RESEND_API_KEY not set — add it on Vercel to enable sending');
-  if (!from) throw new MailConfigError('MAIL_FROM not set — e.g. "Shivansh <hello@lovingroom.co>"');
-  return { apiKey, from };
+  if (apiKey && from) return { kind: 'resend', apiKey, from };
+
+  if (apiKey && !from) {
+    throw new MailConfigError(
+      'RESEND_API_KEY is set but MAIL_FROM is not — set MAIL_FROM to an address on a ' +
+        'Resend-verified domain, or set GMAIL_USER + GMAIL_APP_PASSWORD to send via Gmail'
+    );
+  }
+  throw new MailConfigError(
+    'No mail transport configured — set GMAIL_USER + GMAIL_APP_PASSWORD (Gmail App ' +
+      'Password), or RESEND_API_KEY + MAIL_FROM'
+  );
 }
 
 export function mailerConfigured(): boolean {
-  return Boolean(process.env.RESEND_API_KEY && process.env.MAIL_FROM);
+  const gmail = Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
+  const resend = Boolean(process.env.RESEND_API_KEY && process.env.MAIL_FROM);
+  return gmail || resend;
 }
 
 /**
@@ -34,16 +69,50 @@ export async function sendMail(opts: {
   text: string;
   replyTo?: string;
 }): Promise<SendResult> {
-  const { apiKey, from } = config();
+  const transport = config();
+
+  if (transport.kind === 'gmail') {
+    // Port 587 + STARTTLS rather than 465/implicit TLS: Vercel's Node runtime allows the
+    // outbound TCP either way, but 587 is the submission port Gmail documents for app
+    // passwords and it fails faster and more legibly when the password is wrong.
+    const mailer = nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: 587,
+      secure: false,
+      auth: { user: transport.user, pass: transport.pass },
+    });
+
+    try {
+      const info = await mailer.sendMail({
+        from: transport.from,
+        to: opts.to,
+        subject: opts.subject,
+        text: opts.text,
+        ...(opts.replyTo ? { replyTo: opts.replyTo } : {}),
+      });
+      if (!info.messageId) throw new Error('Gmail accepted the message but returned no id');
+      return { id: info.messageId, to: opts.to };
+    } catch (e) {
+      const msg = (e as Error).message;
+      // The single most likely failure, and the raw SMTP text for it is unhelpful.
+      if (/invalid login|username and password not accepted|535/i.test(msg)) {
+        throw new Error(
+          `Gmail rejected the login — GMAIL_APP_PASSWORD must be a 16-character App ` +
+            `Password (not the account password), and 2-Step Verification must be on. (${msg})`
+        );
+      }
+      throw new Error(`Gmail SMTP: ${msg}`);
+    }
+  }
 
   const res = await fetch(RESEND_ENDPOINT, {
     method: 'POST',
     headers: {
-      authorization: `Bearer ${apiKey}`,
+      authorization: `Bearer ${transport.apiKey}`,
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      from,
+      from: transport.from,
       to: [opts.to],
       subject: opts.subject,
       text: opts.text,
