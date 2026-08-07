@@ -367,6 +367,35 @@ export async function updateWhatsappLeadStatus(
   await redis().set(waLeadKey(id), JSON.stringify({ ...existing, status }));
 }
 
+/** Remove a tracked row AND its per-tracker artifacts, so no orphaned PDFs/blurbs linger. */
+export async function deleteTracked(id: string): Promise<void> {
+  const pipe = redis().pipeline();
+  pipe.del(trackerKey(id));
+  pipe.zrem(TRACKER_INDEX, id);
+  pipe.del(jdKey(id));
+  pipe.del(tailoredKey(id));
+  pipe.del(pdfKey(id));
+  pipe.del(blurbKey(id));
+  pipe.del(gformKey(id));
+  await pipe.exec();
+}
+
+export async function deleteWhatsappLead(id: string): Promise<void> {
+  const pipe = redis().pipeline();
+  pipe.del(waLeadKey(id));
+  pipe.zrem(WA_LEAD_INDEX, id);
+  await pipe.exec();
+}
+
+export async function deleteJob(id: string): Promise<void> {
+  const pipe = redis().pipeline();
+  pipe.del(jobKey(id));
+  pipe.zrem(JOBS_INDEX, id);
+  // Deliberately NOT removed from seen:ids — a purged test job must not come back on the
+  // next discovery run if a source still serves it.
+  await pipe.exec();
+}
+
 export type TrackedArtifacts = { hasPdf: boolean; blurb: Blurb | null };
 
 /** Batch-fetch dashboard artifacts (PDF presence + blurb text) for tracked rows. */
