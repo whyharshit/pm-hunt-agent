@@ -24,7 +24,15 @@ export const dynamic = 'force-dynamic';
  * smoketest@example.com). Real rows never carry these; a row this can't classify is left
  * alone and surfaced for a human to judge.
  */
-const TEST_MARKERS = [/smoke\s?test/i, /\bexample\.(com|org|net)\b/i, /internAgentSmokeTest/i, /delete\s?me/i];
+const TEST_MARKERS = [
+  /smoke\s?test/i,
+  /\bexample\.(com|org|net)\b/i,
+  /internAgentSmokeTest/i,
+  /delete\s?me/i,
+  // A planted fake Google Form found by the first prod inventory (2026-08-08): real form
+  // ids are ~56-char tokens, this one is literally "test".
+  /docs\.google\.com\/forms\/d\/e\/test\b/i,
+];
 
 const isTest = (...fields: Array<string | undefined>) =>
   fields.some((f) => !!f && TEST_MARKERS.some((re) => re.test(f)));
