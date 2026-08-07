@@ -36,8 +36,9 @@ export const ROLE_PATTERNS: RegExp[] = [
   /\bbiz ops\b/i,
   /\bapm\b/i,
   // Data (2026-08-05). Deliberately NOT a bare /\bdata\b/ — that admits "Data Entry
-  // Intern". Engineering variants stay dead via the engineer/developer hard-rejects.
-  /\bdata (analyst|analytics|science|scientist)\b/i,
+  // Intern", which is clerical work, not analysis. ("Data Engineer" used to be excluded
+  // here too; since 2026-08-07 it passes on the SWE patterns below, by design.)
+  /\bdata (analyst|analytics|science|scientist|engineer)\b/i,
   /\banalytics\b/i,
   /\bbusiness intelligence\b/i,
   // VC (2026-08-05).
@@ -45,21 +46,55 @@ export const ROLE_PATTERNS: RegExp[] = [
   /\bvc\b/i,
   /\bventures?\b/i,
   /\binvestment (analyst|associate|team|intern)\b/i,
-  // AI (2026-08-05). "AI Engineer" et al. still die on the engineer hard-reject —
-  // the goal is AI-adjacent non-engineering roles (AI product, AI research, AI ops).
+  // AI (2026-08-05). Originally scoped to AI-adjacent NON-engineering roles (AI product,
+  // AI research, AI ops) because "AI Engineer" died on the engineer hard-reject. That
+  // reject is gone as of 2026-08-07, so AI/ML engineering titles now pass too.
   /\bai\b/i,
   /\bartificial intelligence\b/i,
   /\bmachine learning\b/i,
   /\bml\b/i,
   /\bgen(erative)?[\s-]?ai\b/i,
   /\bllm\b/i,
+  // Software engineering (2026-08-07, explicit user decision: "add SWE posts also in all
+  // sources, don't reject them"). Until now `engineer`/`developer` were HARD-REJECTED, so
+  // every SWE posting died in the title bank regardless of source.
+  //
+  // The intern gate is unchanged and still applies: `isIntern` runs first, so a bare
+  // "Software Engineer" does NOT pass — only "Software Engineer Intern", "SDE Graduate
+  // Trainee" and friends do. SWE is now treated exactly like product/data/AI: a target
+  // FUNCTION, still required to be an early-career posting. Seniority rejects below
+  // (senior/staff/principal/lead/head of/director) also still apply.
+  //
+  // `engineer(ing)` is deliberately broad here rather than an enumeration of stacks —
+  // "Engineering Intern" at a startup is a software role. Non-software disciplines are
+  // excluded by discipline in HARD_REJECT_TITLE_PATTERNS instead, which is a much
+  // shorter and more stable list than trying to name every software stack.
+  /\bengineer(ing)?\b/i,
+  /\bdeveloper\b/i,
+  /\bsoftware\b/i,
+  /\bsde\b/i,
+  /\bprogrammer\b/i,
+  /\bfront[- ]?end\b/i,
+  /\bback[- ]?end\b/i,
+  /\bfull[- ]?stack\b/i,
+  /\bweb (developer|development)\b/i,
+  /\bmobile (developer|development)\b/i,
+  /\bandroid\b/i,
+  /\bios\b/i,
+  /\bdevops\b/i,
+  /\bsre\b/i,
+  /\bqa\b/i,
+  /\bcyber ?security\b/i,
+  /\bblockchain\b/i,
 ];
 
 // If a hard-reject term appears anywhere in title, kill it. (Description excludes are too noisy.)
 export const HARD_REJECT_TITLE_PATTERNS: RegExp[] = [
-  /\b(software|frontend|backend|full[- ]?stack|mobile|ios|android|qa|test|security|platform|infrastructure|cloud|data|ml|ai|devops|sre)\s+(engineer|developer)\b/i,
-  /\bengineer(ing)?\b/i,
-  /\bdeveloper\b/i,
+  // Non-software engineering disciplines. These replace the blanket `engineer|developer`
+  // reject removed on 2026-08-07 when SWE became a target function: "SWE" means software,
+  // so a Mechanical/Civil/Chemical Engineering Intern is still off-target. Naming the ~12
+  // non-software disciplines is far more stable than enumerating every software stack.
+  /\b(mechanical|civil|electrical|electronics|chemical|mining|industrial|aerospace|aeronautical|automotive|structural|petroleum|biomedical|biotech|environmental|marine|metallurg\w*|agricultur\w*)\s+engineer(ing)?\b/i,
   /\bdesigner\b/i,
   /\billustrator\b/i,
   /\bcopywriter\b/i,

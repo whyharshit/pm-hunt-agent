@@ -75,17 +75,27 @@ Remote friendly. Send your CV to talent@fund.vc`,
     name: 'AI research intern one-liner',
     text: `We're hiring an AI Research Intern (work from home) — DM me your resume.`,
   },
-];
-
-// Posts that MUST NOT be auto-tracked.
-const shouldReject: Case[] = [
+  // Software engineering — added 2026-08-07, same decision as check-filters.mts. Both
+  // of these were shouldReject cases until that date ("engineering stays dead"); the
+  // user reversed that, so SWE channel posts are now real matches.
   {
-    name: 'tech intern only',
+    name: 'SWE intern (channel-post shape)',
     text: `Role: Software Engineer Intern
 Company: Acme
 Remote
 https://forms.gle/abc`,
   },
+  {
+    name: 'ML engineer intern',
+    text: `Machine Learning Engineer Intern
+Company: Acme AI
+Remote
+https://forms.gle/mle1`,
+  },
+];
+
+// Posts that MUST NOT be auto-tracked.
+const shouldReject: Case[] = [
   {
     name: 'senior product role',
     text: `Hiring: Senior Product Manager
@@ -133,13 +143,6 @@ Send CV to hr@acme.io`,
     text: `Role: Data Entry Intern
 Remote work
 Apply: https://forms.gle/entry1`,
-  },
-  {
-    name: 'ML engineer intern (engineering stays dead)',
-    text: `Machine Learning Engineer Intern
-Company: Acme AI
-Remote
-https://forms.gle/mle1`,
   },
 ];
 

@@ -46,6 +46,22 @@ const shouldPass: Job[] = [
   j('AI Research Intern'),
   j('Machine Learning Intern'),
   j('GenAI Intern'),
+  // Software engineering — added 2026-08-07 by explicit user decision. These four moved
+  // up from shouldReject; before this date `engineer`/`developer` were hard-rejected.
+  j('Software Engineer Intern'),
+  j('Data Engineer Intern'),
+  j('AI Engineer Intern'),
+  j('Machine Learning Engineer Intern'),
+  j('Backend Developer Intern'),
+  j('Full Stack Developer Intern'),
+  j('Frontend Engineer Intern'),
+  j('SDE Intern'),
+  j('Engineering Intern'),
+  j('Android Developer Intern'),
+  j('DevOps Intern'),
+  j('QA Intern'),
+  j('Web Development Internship'),
+  j('Graduate Engineer Trainee'),
 ];
 
 // The false positives + off-target roles — these MUST NOT pass.
@@ -56,17 +72,31 @@ const shouldReject: Job[] = [
   j('KYC Analyst', { description: 'graduate program, work with product ops' }),
   j('Entry Level Administrative Professional Operations & Office Support'),
   j('Senior Product Manager'),
-  j('Software Engineer Intern'),
   j('Head of Product'),
   j('Product Designer Intern'),
   j('Product Manager Intern', { location: 'New York, onsite', description: 'Onsite only.', tags: [] }),
   // Data/VC/AI near-misses that must stay dead.
   j('Data Entry Intern'),
-  j('Data Engineer Intern'),
-  j('AI Engineer Intern'),
-  j('Machine Learning Engineer Intern'),
   j('Senior Data Analyst'),
   j('AI Content Writer Intern'),
+  // SWE boundaries (2026-08-07). Admitting software engineering must NOT drag in
+  // non-software engineering disciplines, nor defeat the intern and seniority gates.
+  j('Mechanical Engineering Intern'),
+  j('Civil Engineer Intern'),
+  j('Electrical Engineering Intern'),
+  j('Chemical Engineer Trainee'),
+  // The intern gate still applies to SWE exactly as it does to every other function:
+  // a posting that never signals early-career is not an internship.
+  j('Software Engineer'),
+  j('Backend Developer'),
+  // Seniority still wins over the new SWE patterns.
+  j('Senior Software Engineer'),
+  j('Staff Engineer'),
+  j('Principal Engineer'),
+  j('Lead Developer'),
+  j('Engineering Manager'),
+  j('Head of Engineering'),
+  j('VP of Engineering'),
 ];
 
 let bad = 0;

@@ -9,7 +9,10 @@ export type Job = {
     | 'internshala'
     | 'linkedin'
     | 'unstop'
-    | 'apify';
+    | 'apify'
+    // Public Telegram job channels via t.me/s/ previews. Deliberately NOT 'telegram' —
+    // that reads as the Telegram *intake* agent (DM → tracker), a different thing.
+    | 'tgchannel';
   title: string;
   company: string;
   location: string;
