@@ -39,6 +39,15 @@ async function fetchForm(url: string): Promise<{ html: string; finalUrl: string 
     redirect: 'follow',
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
+  // Google answers 401/403 (not a login redirect) for forms restricted to signed-in or
+  // org accounts — verified live 2026-08-08: the body is the permission interstitial with
+  // no FB_PUBLIC_LOAD_DATA_ in it. No server can read such a form's fields, so the
+  // prefill link can't be built for it, ever. Say that instead of a bare status code.
+  if (res.status === 401 || res.status === 403) {
+    throw new Error(
+      'this form requires Google sign-in to view — the pre-filler cannot read its fields; fill it manually in your signed-in browser'
+    );
+  }
   if (!res.ok) throw new Error(`form fetch ${res.status}`);
   // A closed form 200s but redirects to /closedform, which carries no form data —
   // say so instead of letting it fall through to "not a public Google Form".
