@@ -62,6 +62,7 @@ export async function GET(request: Request) {
     status: t.status,
     source: t.source,
     addedAt: t.addedAt,
+    tailorError: t.tailorError ?? null,
     flagged: isTest(t.url, t.note, t.company, t.role),
   }));
   const leadRows = leads.map((l) => ({
