@@ -7,7 +7,11 @@ import { fetchLinkedInViaSerper } from '@/lib/sources/linkedin';
 import { fetchUnstop } from '@/lib/sources/unstop';
 import { fetchYc } from '@/lib/sources/yc';
 import { fetchLinkedInPostsViaApify } from '@/lib/sources/apify';
+import { fetchTelegramChannels } from '@/lib/sources/telegram';
+import { fetchHimalayas, fetchRemotive, fetchJobicy } from '@/lib/sources/boards';
+import { fetchViaFirecrawl } from '@/lib/sources/firecrawl';
 import { isIntern, isProductOrOps, isRemote, isHardRejected } from '@/lib/filters';
+import type { Job } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -26,26 +30,28 @@ export async function GET(request: Request) {
   const debug = url.searchParams.get('debug') === 'true';
 
   if (debug) {
-    const [remoteOk, wwr, hn, internshala, linkedin, unstop, yc, apify] = await Promise.all([
-      fetchRemoteOk().catch(() => []),
-      fetchWeWorkRemotely().catch(() => []),
-      fetchHnWhoIsHiring().catch(() => []),
-      fetchInternshala().catch(() => []),
-      fetchLinkedInViaSerper().catch(() => []),
-      fetchUnstop().catch(() => []),
-      fetchYc().catch(() => []),
-      fetchLinkedInPostsViaApify().catch(() => []),
-    ]);
-    const all = [
-      ...remoteOk,
-      ...wwr,
-      ...hn,
-      ...internshala,
-      ...linkedin,
-      ...unstop,
-      ...yc,
-      ...apify,
+    const sources: Array<[string, () => Promise<Job[]>]> = [
+      ['remoteok', fetchRemoteOk],
+      ['wwr', fetchWeWorkRemotely],
+      ['hn', fetchHnWhoIsHiring],
+      ['internshala', fetchInternshala],
+      ['linkedin', fetchLinkedInViaSerper],
+      ['unstop', fetchUnstop],
+      ['yc', fetchYc],
+      ['apify', fetchLinkedInPostsViaApify],
+      ['tgchannel', fetchTelegramChannels],
+      ['himalayas', fetchHimalayas],
+      ['remotive', fetchRemotive],
+      ['jobicy', fetchJobicy],
+      ['firecrawl', fetchViaFirecrawl],
     ];
+    const perSource = await Promise.all(
+      sources.map(([, fn]) => fn().catch((): Job[] => []))
+    );
+    const fetchedBySource = Object.fromEntries(
+      sources.map(([name], i) => [name, perSource[i].length])
+    );
+    const all = perSource.flat();
 
     const internOnly = all.filter(isIntern);
     const internAndRole = internOnly.filter(isProductOrOps);
@@ -56,16 +62,7 @@ export async function GET(request: Request) {
     return Response.json({
       counts: {
         fetched: all.length,
-        fetchedBySource: {
-          remoteok: remoteOk.length,
-          wwr: wwr.length,
-          hn: hn.length,
-          internshala: internshala.length,
-          linkedin: linkedin.length,
-          unstop: unstop.length,
-          yc: yc.length,
-          apify: apify.length,
-        },
+        fetchedBySource,
         passIntern: internOnly.length,
         passInternAndRole: internAndRole.length,
         passInternAndRoleAndRemote: internAndRoleAndRemote.length,

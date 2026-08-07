@@ -12,7 +12,13 @@ export type Job = {
     | 'apify'
     // Public Telegram job channels via t.me/s/ previews. Deliberately NOT 'telegram' —
     // that reads as the Telegram *intake* agent (DM → tracker), a different thing.
-    | 'tgchannel';
+    | 'tgchannel'
+    // The three free JSON boards (lib/sources/boards.ts).
+    | 'himalayas'
+    | 'remotive'
+    | 'jobicy'
+    // workatastartup.com rendered through Firecrawl (lib/sources/firecrawl.ts).
+    | 'waas';
   title: string;
   company: string;
   location: string;

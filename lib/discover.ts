@@ -6,6 +6,9 @@ import { fetchLinkedInViaSerper } from './sources/linkedin';
 import { fetchUnstop } from './sources/unstop';
 import { fetchYc } from './sources/yc';
 import { fetchLinkedInPostsViaApify } from './sources/apify';
+import { fetchTelegramChannels } from './sources/telegram';
+import { fetchHimalayas, fetchRemotive, fetchJobicy } from './sources/boards';
+import { fetchViaFirecrawl } from './sources/firecrawl';
 import { passes } from './filters';
 import { getSeenIds, markSeen, recordAgentRun, saveJobs, setAgentRunning } from './storage';
 import { sendTelegram, formatDigest } from './telegram';
@@ -33,7 +36,7 @@ export async function runDiscovery(opts: { notify?: boolean } = {}): Promise<Dis
 
   try {
     // Folded into this one cron rather than given their own: Hobby caps at 2 daily crons.
-    const [remoteOk, wwr, hn, internshala, linkedin, unstop, yc, apify] = await Promise.all([
+    const results = await Promise.all([
       safe('remoteok', fetchRemoteOk, errors),
       safe('wwr', fetchWeWorkRemotely, errors),
       safe('hn', fetchHnWhoIsHiring, errors),
@@ -42,18 +45,14 @@ export async function runDiscovery(opts: { notify?: boolean } = {}): Promise<Dis
       safe('unstop', fetchUnstop, errors),
       safe('yc', fetchYc, errors),
       safe('apify', fetchLinkedInPostsViaApify, errors),
+      safe('tgchannel', fetchTelegramChannels, errors),
+      safe('himalayas', fetchHimalayas, errors),
+      safe('remotive', fetchRemotive, errors),
+      safe('jobicy', fetchJobicy, errors),
+      safe('firecrawl', fetchViaFirecrawl, errors),
     ]);
 
-    const all: Job[] = [
-      ...(remoteOk ?? []),
-      ...(wwr ?? []),
-      ...(hn ?? []),
-      ...(internshala ?? []),
-      ...(linkedin ?? []),
-      ...(unstop ?? []),
-      ...(yc ?? []),
-      ...(apify ?? []),
-    ];
+    const all: Job[] = results.flatMap((r) => r ?? []);
     const matching = all.filter(passes);
 
     const seen = await getSeenIds();
