@@ -1,3 +1,6 @@
+import { findContact } from '@/lib/contact';
+import { draftOutreach } from '@/lib/funding';
+import { MAX_AGE_DAYS } from '@/lib/sources/techcrunch';
 import {
   deleteJob,
   deleteTracked,
@@ -8,6 +11,8 @@ import {
   getRecentJobs,
   getRecentTracked,
   getRecentWhatsappLeads,
+  saveFundingContact,
+  saveFundingOutreach,
 } from '@/lib/storage';
 
 export const dynamic = 'force-dynamic';
@@ -27,6 +32,10 @@ export const dynamic = 'force-dynamic';
  *                         out (`sentAt`). Answers "what is there to send today" without
  *                         loading the dashboard. Sends NOTHING — sending stays a human
  *                         click on the dashboard.
+ *   ?action=prepare-outreach&limit=N
+ *                       — bulk "Find contact" + "Draft outreach" over fresh un-drafted
+ *                         rows, so the human step is just review-and-send. Also sends
+ *                         NOTHING. Idempotent: already-drafted rows are skipped.
  *
  * The markers are deliberately narrow: the smoke rows planted by the 2026-08-02 WhatsApp
  * ingest test ("SMOKE TEST — delete me", forms.gle/internAgentSmokeTest,
@@ -110,6 +119,73 @@ export async function GET(request: Request) {
         readyToSend: readyToSend.length,
       },
       readyToSend: readyToSend.map((r) => ({ id: r.id, company: r.company, emails: r.contact!.emails })),
+    });
+  }
+
+  // Prepare the outreach queue: look up the contact, then draft against it. Both are the
+  // same server actions the dashboard buttons call — this just does them in bulk so the
+  // human step is reduced to reviewing and clicking send.
+  //
+  // It NEVER sends. Sending stays `sendFundingEmail`, which needs a human click and only
+  // accepts an address that was harvested from the company's own site.
+  //
+  // Skips anything already drafted (re-runnable/idempotent), anything not `new`, and
+  // anything older than the recency gate — a draft congratulating a founder on a raise
+  // from last year is worse than no draft. `?limit=` bounds one invocation so a slow
+  // article fetch can't run past the function timeout; run it again for the next batch.
+  if (action === 'prepare-outreach') {
+    const limit = Math.min(Number(new URL(request.url).searchParams.get('limit') ?? 6) || 6, 12);
+    const items = await getRecentFunding(200);
+    const existing = await getFundingOutreaches(items.map((i) => i.id));
+
+    const cutoff = Date.now() - MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+    const stale: string[] = [];
+    const queue = items.filter((i) => {
+      if (i.status !== 'new' || existing.has(i.id)) return false;
+      if (Date.parse(i.postedAt) < cutoff) {
+        stale.push(`${i.company} (${i.postedAt.slice(0, 10)})`);
+        return false;
+      }
+      return true;
+    });
+
+    const batch = queue.slice(0, limit);
+    const prepared = await Promise.all(
+      batch.map(async (item) => {
+        try {
+          // Contact first: a named founder makes the draft open "Hi <first> —".
+          const contact = await findContact(item);
+          await saveFundingContact(item.id, contact);
+          const outreach = await draftOutreach(item, contact);
+          await saveFundingOutreach(item.id, outreach);
+          return {
+            id: item.id,
+            company: item.company,
+            angle: outreach.angle,
+            subject: outreach.subject,
+            text: outreach.text,
+            founders: contact.founders.map((f) => f.name),
+            emails: contact.emails.map((e) => e.address),
+            contactNote: contact.note ?? null,
+            error: null as string | null,
+          };
+        } catch (e) {
+          return { id: item.id, company: item.company, error: (e as Error).message };
+        }
+      })
+    );
+
+    const ok = prepared.filter((p) => !p.error);
+    return Response.json({
+      ok: true,
+      sent: 0,
+      note: 'drafts + contacts only — nothing was emailed',
+      prepared: ok.length,
+      failed: prepared.filter((p) => p.error),
+      withEmail: ok.filter((p) => (p.emails?.length ?? 0) > 0).length,
+      remaining: Math.max(0, queue.length - batch.length),
+      skippedStale: { count: stale.length, maxAgeDays: MAX_AGE_DAYS, items: stale },
+      results: ok,
     });
   }
 

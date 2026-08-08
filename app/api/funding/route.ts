@@ -1,5 +1,5 @@
 import { runFundingScan } from '@/lib/funding';
-import { fetchTechCrunchFunding } from '@/lib/sources/techcrunch';
+import { fetchTechCrunchFundingDetailed } from '@/lib/sources/techcrunch';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -17,8 +17,8 @@ async function handle(request: Request) {
 
   const url = new URL(request.url);
   if (url.searchParams.get('debug') === 'true') {
-    const raws = await fetchTechCrunchFunding().catch((e) => ({ error: (e as Error).message }));
-    return Response.json({ debug: true, raws });
+    const res = await fetchTechCrunchFundingDetailed().catch((e) => ({ error: (e as Error).message }));
+    return Response.json({ debug: true, ...res });
   }
 
   try {

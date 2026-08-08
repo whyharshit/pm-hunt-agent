@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import resumeData from '@/profile/resume.json';
-import { fetchTechCrunchFunding, type FundingRaw } from './sources/techcrunch';
+import { fetchTechCrunchFundingDetailed, type FundingRaw } from './sources/techcrunch';
 import {
   getFundingSeen,
   markFundingSeen,
@@ -82,7 +82,16 @@ async function extractFunding(raws: FundingRaw[]): Promise<Extracted[]> {
   return parsed as Extracted[];
 }
 
-export type FundingScanResult = { fetched: number; newCount: number; usedFallback: boolean };
+export type FundingScanResult = {
+  fetched: number;
+  newCount: number;
+  usedFallback: boolean;
+  /** Feed-level funnel. `afterRaiseGate`/`afterAgeGate` are what expose a feed going stale. */
+  afterRaiseGate: number;
+  afterAgeGate: number;
+  perFeed: Record<string, number>;
+  feedErrors: string[];
+};
 
 /**
  * Watch new funding announcements: fetch the feed, dedupe, enrich via one
@@ -92,7 +101,7 @@ export type FundingScanResult = { fetched: number; newCount: number; usedFallbac
 export async function runFundingScan(): Promise<FundingScanResult> {
   await setAgentRunning('funding');
   try {
-    const raws = await fetchTechCrunchFunding();
+    const { items: raws, stats } = await fetchTechCrunchFundingDetailed();
     const seen = await getFundingSeen();
     const fresh = raws.filter((r) => !seen.has(r.sourceId));
 
@@ -128,12 +137,28 @@ export async function runFundingScan(): Promise<FundingScanResult> {
 
     await recordAgentRun('funding', {
       state: 'ok',
-      summary: `fetched ${raws.length} · ${items.length} new${usedFallback ? ' (raw — Gemini fallback)' : ''}`,
-      stats: { fetched: raws.length, new: items.length },
+      summary:
+        `${stats.fetched} posts → ${stats.afterRaiseGate} raises → ${stats.afterAgeGate} fresh · ` +
+        `${items.length} new${usedFallback ? ' (raw — Gemini fallback)' : ''}` +
+        (stats.errors.length ? ` · feed errors: ${stats.errors.length}` : ''),
+      stats: {
+        fetched: stats.fetched,
+        raises: stats.afterRaiseGate,
+        fresh: stats.afterAgeGate,
+        new: items.length,
+      },
       error: null,
     });
 
-    return { fetched: raws.length, newCount: items.length, usedFallback };
+    return {
+      fetched: raws.length,
+      newCount: items.length,
+      usedFallback,
+      afterRaiseGate: stats.afterRaiseGate,
+      afterAgeGate: stats.afterAgeGate,
+      perFeed: stats.perFeed,
+      feedErrors: stats.errors,
+    };
   } catch (e) {
     await recordAgentRun('funding', { state: 'error', error: (e as Error).message });
     throw e;
