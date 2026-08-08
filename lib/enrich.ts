@@ -238,6 +238,11 @@ export async function findPeopleEmails(domain: string): Promise<EnrichedContacts
       people.push({ name, title: e.position ?? undefined });
     }
     emails.push({
+      // Keep the person ON the address. Hunter returns names and addresses as parallel
+      // lists, and downstream only the pairing matters: outreach that greets a founder but
+      // sends to an employee is the exact failure this whole guard chain exists to stop.
+      ...(name ? { person: name } : {}),
+      ...(e.position ? { title: e.position } : {}),
       address: e.value.toLowerCase(),
       // `foundOn` normally records the page an address was scraped from. Hunter is not a
       // page, so record the provider and the confidence instead — a reader must always be

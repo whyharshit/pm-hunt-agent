@@ -244,6 +244,59 @@ async function fetchSerperQuery(q: string, key: string): Promise<FundingRaw[]> {
   return out;
 }
 
+/**
+ * Company name → its official domain, via a Serper web search.
+ *
+ * Exists because Hunter's domain-finder cannot disambiguate small startups: "Hulp" returns
+ * hulp.chat / hulp.work / hulp.nl / hulp.in, "Vingo" returns five country TLDs, and picking
+ * one is a coin flip (lib/enrich.ts refuses to guess, which left 41 of 83 fresh rows stuck).
+ * A search engine resolves exactly this, and the Serper key is already paid for.
+ *
+ * Returns null rather than a guess when the top results are all press coverage — a wrong
+ * domain leads to a wrong person, and eventually a cold email to a stranger.
+ */
+export async function resolveDomainViaSearch(company: string): Promise<string | null> {
+  const key = process.env.SERPER_API_KEY;
+  if (!key || company.trim().length < 3) return null;
+
+  const res = await fetch('https://google.serper.dev/search', {
+    method: 'POST',
+    headers: { 'X-API-KEY': key, 'Content-Type': 'application/json' },
+    // Plain keywords: the free tier rejects quoted phrases and OR operators.
+    body: JSON.stringify({ q: `${company.trim()} startup official website`, num: 10, gl: 'in' }),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(`serper domain ${res.status}`);
+
+  const body = (await res.json()) as { organic?: Array<{ link?: string; title?: string }> };
+  const target = company.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  for (const r of body.organic ?? []) {
+    if (!r.link) continue;
+    let host: string;
+    try {
+      host = new URL(r.link).hostname.replace(/^www\./, '').toLowerCase();
+    } catch {
+      continue;
+    }
+    // Press, directories and social profiles dominate these results and are never the
+    // company's own site.
+    if (NON_COMPANY_RE.test(host)) continue;
+
+    // The domain must actually relate to the company name, or the top organic result for
+    // an obscure startup is just whoever ranks for that word.
+    const label = host.split('.')[0].replace(/[^a-z0-9]/g, '');
+    const flat = host.replace(/[^a-z0-9]/g, '');
+    if (label === target || flat.startsWith(target) || target.startsWith(label)) return host;
+  }
+
+  return null;
+}
+
+/** Hosts that are never a startup's own site. */
+const NON_COMPANY_RE =
+  /(^|\.)(techcrunch|entrackr|inc42|yourstory|economictimes|indiatimes|business-standard|businesswire|prnewswire|globenewswire|crunchbase|pitchbook|tracxn|linkedin|twitter|x|facebook|instagram|youtube|medium|substack|wikipedia|glassdoor|indeed|ambitionbox|zaubacorp|google|apple|amazon|bloomberg|reuters|forbes|wamda|dealroom|failory|f6s|angel|wellfound)\./;
+
 export type NewsFundingResult = {
   items: FundingRaw[];
   perSource: Record<string, number>;

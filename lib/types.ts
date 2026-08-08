@@ -123,6 +123,14 @@ export type ContactEmail = {
   address: string;
   /** Page the address was literally found on. Addresses are never inferred or guessed. */
   foundOn: string;
+  /**
+   * Whose address this is, when the source told us. Without it the outreach can only ever
+   * greet `founders[0]`, which is wrong the moment it sends to anyone else — and sending to
+   * a non-founder is now allowed (founder first, employee as fallback).
+   */
+  person?: string;
+  /** Their role, e.g. "Co-founder & CEO", "Head of Growth". Used to prefer decision-makers. */
+  title?: string;
 };
 
 export type FundingContact = {

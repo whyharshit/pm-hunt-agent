@@ -1,7 +1,7 @@
 import { addressLooksLikePerson, findContact, isGenericEmail } from '@/lib/contact';
 import { enrichmentConfigured, findPeopleEmails, resolveDomain } from '@/lib/enrich';
 import { firstName, isEditedDraft, renderOutreachTemplate } from '@/lib/outreach-template';
-import { isUnresolvableNewsLink } from '@/lib/sources/fundingnews';
+import { isUnresolvableNewsLink, resolveDomainViaSearch } from '@/lib/sources/fundingnews';
 import { draftOutreach } from '@/lib/funding';
 import { MAX_AGE_DAYS } from '@/lib/sources/techcrunch';
 import {
@@ -274,6 +274,7 @@ export async function GET(request: Request) {
     const ordered = [...items].sort((a, b) => Date.parse(b.postedAt) - Date.parse(a.postedAt));
 
     let domainsFound = 0;
+    let searchResolved = 0;
     let credited = 0;
     let peopleFound = 0;
     const results: Array<Record<string, unknown>> = [];
@@ -296,28 +297,42 @@ export async function GET(request: Request) {
 
         if (!domain) {
           const found = await resolveDomain(item.company);
-          if (found.kind === 'none') continue;
-          if (found.kind === 'ambiguous') {
-            // Record the options instead of picking one. Costs nothing and keeps a wrong
-            // company out of the queue.
-            await saveFundingContact(item.id, {
-              id: item.id,
-              founders: existing?.founders ?? [],
-              website: existing?.website,
-              emails: existing?.emails ?? [],
-              socials: existing?.socials ?? [],
-              foundAt: new Date().toISOString(),
-              model: 'hunter.io',
-              note: `domain ambiguous — candidates: ${found.candidates.join(', ')}; pick one by hand`,
-            });
-            ambiguous.push({ company: item.company, candidates: found.candidates });
-            continue;
-          }
-          domain = found.domain;
-          knownEmails = found.emailCount;
-          domainsFound++;
-          if (found.matchedName.toLowerCase() !== item.company.toLowerCase()) {
-            note = `domain resolved from company name — Hunter matched "${found.matchedName}"; confirm it is the right company`;
+
+          if (found.kind === 'resolved') {
+            domain = found.domain;
+            knownEmails = found.emailCount;
+            domainsFound++;
+            if (found.matchedName.toLowerCase() !== item.company.toLowerCase()) {
+              note = `domain resolved from company name — Hunter matched "${found.matchedName}"; confirm it is the right company`;
+            }
+          } else {
+            // Hunter could not decide (or found nothing). A search engine can: it was
+            // 41 of 83 fresh rows stuck on exactly this, and the Serper key is already
+            // paid for. Still no guessing — the searcher requires the domain to relate to
+            // the company name and skips press and directory hosts.
+            const viaSearch = await resolveDomainViaSearch(item.company).catch(() => null);
+            if (viaSearch) {
+              domain = viaSearch;
+              knownEmails = 1; // unknown to Hunter yet; worth one lookup
+              domainsFound++;
+              note = `domain found by web search (${viaSearch})`;
+              searchResolved++;
+            } else if (found.kind === 'ambiguous') {
+              await saveFundingContact(item.id, {
+                id: item.id,
+                founders: existing?.founders ?? [],
+                website: existing?.website,
+                emails: existing?.emails ?? [],
+                socials: existing?.socials ?? [],
+                foundAt: new Date().toISOString(),
+                model: 'hunter.io',
+                note: `domain ambiguous — candidates: ${found.candidates.join(', ')}; pick one by hand`,
+              });
+              ambiguous.push({ company: item.company, candidates: found.candidates });
+              continue;
+            } else {
+              continue;
+            }
           }
         }
 
@@ -373,6 +388,7 @@ export async function GET(request: Request) {
       sent: 0,
       note: 'contact enrichment only — nothing was emailed',
       domainsFound,
+      searchResolved,
       ambiguousDomains: ambiguous.length,
       ambiguous,
       creditsSpent: credited,

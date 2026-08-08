@@ -1,5 +1,6 @@
 import { addressLooksLikePerson, isGenericEmail } from './contact';
 import { sendOutreachMail } from './mailer';
+import { firstName, isEditedDraft, renderOutreachTemplate } from './outreach-template';
 import { readResumePdf } from './resume-file';
 import { MAX_AGE_DAYS } from './sources/techcrunch';
 import {
@@ -44,6 +45,11 @@ const NEVER_SEND_TO = [
   'hello@lovingroom.co',
 ];
 
+/** Does the draft already open by greeting this person's first name? */
+function greetingMatches(text: string, person: string): boolean {
+  return new RegExp(`^\\s*hi\\s+${firstName(person)}\\b`, 'i').test(text);
+}
+
 /** Addresses we trust enough to mail unattended. A page scrape is not one of them. */
 function trustedProvenance(e: ContactEmail): boolean {
   return /hunter\.io|added by hand/i.test(e.foundOn);
@@ -62,6 +68,8 @@ export type AutoSendCandidate = {
   contact: FundingContact;
   to: string;
   greeted: string;
+  /** False when falling back to an employee, so the report shows which is which. */
+  isFounder: boolean;
 };
 
 /**
@@ -84,19 +92,43 @@ export async function autoSendCandidates(): Promise<AutoSendCandidate[]> {
     if (!draft || draft.sentAt) continue;
 
     const contact = contacts.get(item.id);
-    const greeted = contact?.founders[0]?.name;
-    if (!contact || !greeted) continue;
+    if (!contact) continue;
 
-    const match = contact.emails.find(
+    const usable = contact.emails.filter(
       (e) =>
         trustedProvenance(e) &&
         !isGenericEmail(e.address) &&
-        addressLooksLikePerson(e.address, greeted) &&
         !NEVER_SEND_TO.includes(e.address.toLowerCase())
     );
-    if (!match) continue;
+    if (usable.length === 0) continue;
 
-    out.push({ item, draft, contact, to: match.address, greeted });
+    // FOUNDER FIRST, employee as fallback (user's instruction 2026-08-09: "put founder on
+    // priority but if cannot find send emails to employee also"). Hunter already ranks
+    // decision-makers and executives ahead of everyone else, so the first usable address is
+    // the most senior person it knows.
+    const founderNames = contact.founders.map((f) => f.name);
+    const founderMatch = usable.find((e) =>
+      founderNames.some((n) => addressLooksLikePerson(e.address, n))
+    );
+    const chosen = founderMatch ?? usable.find((e) => e.person) ?? null;
+    if (!chosen) continue;
+
+    // Whoever receives it must be who the email greets. That is not a policy choice, it is
+    // the difference between "Hi Dimitris" reaching Dimitris and reaching a colleague.
+    const greeted =
+      (founderMatch
+        ? founderNames.find((n) => addressLooksLikePerson(chosen.address, n))
+        : chosen.person) ?? chosen.person;
+    if (!greeted || !addressLooksLikePerson(chosen.address, greeted)) continue;
+
+    out.push({
+      item,
+      draft,
+      contact,
+      to: chosen.address,
+      greeted,
+      isFounder: Boolean(founderMatch),
+    });
   }
 
   // Freshest raise first: if the cap bites, it should bite on the least timely row.
@@ -106,7 +138,7 @@ export async function autoSendCandidates(): Promise<AutoSendCandidate[]> {
 export type AutoSendResult = {
   cap: number;
   eligible: number;
-  sent: Array<{ company: string; to: string }>;
+  sent: Array<{ company: string; to: string; greeted?: string; isFounder?: boolean }>;
   failed: Array<{ company: string; to: string; error: string }>;
   dryRun: boolean;
   /**
@@ -139,7 +171,12 @@ export async function runAutoSend(opts: { dryRun?: boolean } = {}): Promise<Auto
   };
 
   if (dryRun) {
-    result.sent = batch.map((c) => ({ company: c.item.company, to: c.to }));
+    result.sent = batch.map((c) => ({
+      company: c.item.company,
+      to: c.to,
+      greeted: c.greeted,
+      isFounder: c.isFounder,
+    }));
     return result;
   }
 
@@ -156,19 +193,45 @@ export async function runAutoSend(opts: { dryRun?: boolean } = {}): Promise<Auto
 
   for (const c of batch) {
     try {
+      // The stored draft greets founders[0]; falling back to an employee means it now
+      // greets the wrong person. Re-render against whoever is actually receiving it.
+      let draft = c.draft;
+      if (!greetingMatches(draft.text, c.greeted)) {
+        if (isEditedDraft(draft.model)) {
+          // Hand-written copy is not ours to rewrite. Leave it for the human rather than
+          // sending it to someone it does not address.
+          result.failed.push({
+            company: c.item.company,
+            to: c.to,
+            error: `hand-edited draft greets someone other than ${c.greeted} — fix or reset it`,
+          });
+          continue;
+        }
+        const regenerated = renderOutreachTemplate(c.item, {
+          ...c.contact,
+          founders: [{ name: c.greeted }, ...c.contact.founders],
+        });
+        if (!regenerated) {
+          result.failed.push({ company: c.item.company, to: c.to, error: 'could not render draft' });
+          continue;
+        }
+        draft = regenerated;
+        await saveFundingOutreach(c.item.id, draft);
+      }
+
       await sendOutreachMail({
         to: c.to,
-        subject: c.draft.subject || `${c.item.company} — quick note`,
-        text: c.draft.text,
+        subject: draft.subject || `${c.item.company} — quick note`,
+        text: draft.text,
         company: c.item.company,
       });
       await saveFundingOutreach(c.item.id, {
-        ...c.draft,
+        ...draft,
         sentAt: new Date().toISOString(),
         sentTo: c.to,
       });
       await updateFundingStatus(c.item.id, 'contacted');
-      result.sent.push({ company: c.item.company, to: c.to });
+      result.sent.push({ company: c.item.company, to: c.to, greeted: c.greeted, isFounder: c.isFounder });
     } catch (e) {
       result.failed.push({ company: c.item.company, to: c.to, error: (e as Error).message });
     }
