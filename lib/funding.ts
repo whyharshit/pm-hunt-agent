@@ -1,6 +1,8 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { Type } from '@google/genai';
+import { generateContent } from './gemini';
 import resumeData from '@/profile/resume.json';
-import { fetchTechCrunchFundingDetailed, type FundingRaw } from './sources/techcrunch';
+import { fetchFundingNews } from './sources/fundingnews';
+import { MAX_AGE_DAYS, fetchTechCrunchFundingDetailed, type FundingRaw } from './sources/techcrunch';
 import {
   getFundingSeen,
   markFundingSeen,
@@ -48,10 +50,6 @@ const extractSchema = {
 type Extracted = { company: string; amount: string; round: string; summary: string };
 
 async function extractFunding(raws: FundingRaw[]): Promise<Extracted[]> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY not set');
-
-  const ai = new GoogleGenAI({ apiKey });
   const prompt = [
     'Normalise these funding items (return one record per item, same order):',
     '',
@@ -62,7 +60,7 @@ async function extractFunding(raws: FundingRaw[]): Promise<Extracted[]> {
     ),
   ].join('\n');
 
-  const response = await ai.models.generateContent({
+  const response = await generateContent({
     model: MODEL,
     contents: prompt,
     config: {
@@ -101,7 +99,35 @@ export type FundingScanResult = {
 export async function runFundingScan(): Promise<FundingScanResult> {
   await setAgentRunning('funding');
   try {
-    const { items: raws, stats } = await fetchTechCrunchFundingDetailed();
+    // TechCrunch and the news feeds run together; neither can take the run down.
+    const [tcResult, newsResult] = await Promise.all([
+      fetchTechCrunchFundingDetailed(),
+      fetchFundingNews().catch((e) => ({
+        items: [] as FundingRaw[],
+        perSource: {},
+        errors: [`fundingnews: ${(e as Error).message}`],
+      })),
+    ]);
+
+    // The news feeds apply the raise gate themselves but not the age gate — Google News
+    // `when:7d` already bounds them, and Serper rows have no reliable date. Apply it here
+    // so one rule decides freshness for every source.
+    const cutoff = Date.now() - MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+    const byId = new Map<string, FundingRaw>();
+    for (const item of [...tcResult.items, ...newsResult.items]) {
+      const t = Date.parse(item.postedAt);
+      if (!Number.isNaN(t) && t < cutoff) continue;
+      if (!byId.has(item.sourceId)) byId.set(item.sourceId, item);
+    }
+    const raws = [...byId.values()].sort((a, b) => Date.parse(b.postedAt) - Date.parse(a.postedAt));
+
+    const stats = {
+      ...tcResult.stats,
+      perFeed: { ...tcResult.stats.perFeed, ...newsResult.perSource },
+      errors: [...tcResult.stats.errors, ...newsResult.errors],
+      afterAgeGate: raws.length,
+    };
+
     const seen = await getFundingSeen();
     const fresh = raws.filter((r) => !seen.has(r.sourceId));
 
@@ -197,11 +223,8 @@ export async function draftOutreach(
   item: FundingItem,
   contact?: FundingContact | null
 ): Promise<FundingOutreach> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY not set');
 
   const recipient = contact?.founders[0];
-  const ai = new GoogleGenAI({ apiKey });
   const prompt = [
     'FUNDING CONTEXT:',
     `Company: ${item.company}`,
@@ -234,7 +257,7 @@ export async function draftOutreach(
   let overflow = 0;
 
   for (let attempt = 0; attempt < 2; attempt++) {
-    const response = await ai.models.generateContent({
+    const response = await generateContent({
       model: MODEL,
       contents: overflow
         ? `${prompt}\n\nYour previous attempt was ${overflow} characters — ${overflow - MAX_OUTREACH} too many. Rewrite it under ${MAX_OUTREACH} characters, keeping the congratulation, the credential and the internship ask.`

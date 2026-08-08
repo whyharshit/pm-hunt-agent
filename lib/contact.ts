@@ -1,7 +1,9 @@
 import * as cheerio from 'cheerio';
 import type { AnyNode } from 'domhandler';
-import { GoogleGenAI, Type } from '@google/genai';
+import { Type } from '@google/genai';
+import { generateContent } from './gemini';
 import { fetchHtml } from './scrape';
+import { isUnresolvableNewsLink } from './sources/fundingnews';
 import { stripTags } from './html';
 import type { ContactEmail, ContactPerson, FundingContact, FundingItem } from './types';
 
@@ -129,10 +131,6 @@ const extractSchema = {
 type Extracted = { founders: ContactPerson[]; website: string };
 
 async function extractPeople(item: FundingItem, facts: ArticleFacts): Promise<Extracted> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY not set');
-
-  const ai = new GoogleGenAI({ apiKey });
   const prompt = [
     `STARTUP THAT RAISED: ${item.company}`,
     '',
@@ -143,7 +141,7 @@ async function extractPeople(item: FundingItem, facts: ArticleFacts): Promise<Ex
     facts.text,
   ].join('\n');
 
-  const response = await ai.models.generateContent({
+  const response = await generateContent({
     model: MODEL,
     contents: prompt,
     config: {
@@ -243,6 +241,21 @@ async function collectEmails(website: string): Promise<{ emails: ContactEmail[];
  * here guesses `first@domain`, because a bounced cold email costs more than a missing one.
  */
 export async function findContact(item: FundingItem): Promise<FundingContact> {
+  // A Google News link is a JavaScript interstitial, not the article (see
+  // lib/sources/fundingnews.ts). Scraping it yields Angular source, and asking Gemini to
+  // find a founder in that would waste one of a very small daily quota. Say so instead.
+  if (isUnresolvableNewsLink(item.url)) {
+    return {
+      id: item.id,
+      founders: [],
+      emails: [],
+      socials: [],
+      foundAt: new Date().toISOString(),
+      model: 'none',
+      note: 'Google News link — open it in the browser to reach the article; automated contact lookup cannot follow it',
+    };
+  }
+
   const html = await fetchHtml(item.url, ARTICLE_TIMEOUT_MS);
   const facts = readArticle(html);
   const { founders, website } = await extractPeople(item, facts);

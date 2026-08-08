@@ -23,8 +23,11 @@ const SHOULD_PASS = [
   'Defense tech Hadrian raises $1.37B at $8B valuation',
   'Naïve raises $28.5M to automate the grunt work of setting up and running a company',
   'Omilia raises $67M to scale its customer support platform',
-  "Elon Musk's Boring Company reportedly raising funding at a $20B valuation",
   'Conifer raises $20M seed round to electrify motors',
+  // India-shaped headlines from the Google News feed — crore/lakh amounts must count.
+  'Adiabatic Technologies raises Rs 8.3 crore to scale Lithium-Ion battery production',
+  'Vingo raises ₹10 crore seed round for recommerce push',
+  'Healthcare AI startup Consint.AI raises Rs 22 Cr in Series A round',
   'Cheersy closes a $550,000 pre-seed round',
 ];
 
@@ -34,6 +37,12 @@ const SHOULD_REJECT = [
   'Convective Capital raises an $85 million fund for wildfire tech',
   'NEA closes on $6.2B across two funds',
   'Robinhood to list a fund that lets anyone back Y Combinator startups',
+  // No raise verb at all, but "Seed" + an amount made it look like a round.
+  'Anicut Capital, Chennai Angels Partner for ₹175 Crore Seed Fund',
+  // Not raised yet — congratulating on a rumour is worse than silence.
+  'Exclusive: Pain Care Startup Zanskar In Talks To Raise $6 Mn In Round Led By Bessemer',
+  'Fintech startup plans to raise $40M later this year',
+  "Elon Musk's Boring Company reportedly raising funding at a $20B valuation",
   // Exits / M&A.
   'Klaviyo acquires Elias Torres’ Agency in full-circle reunion for tech founders',
   'Bending Spoons to buy Airtable for $1.28B',

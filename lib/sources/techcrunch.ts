@@ -62,6 +62,15 @@ const NOT_A_STARTUP_RAISE_RE = new RegExp(
     // funds"), and excluding them stopped the rule reaching the word it keys on.
     String.raw`\b(raises?|closes?|launch(es|ed)?)\s+.{0,40}\b(fund|funds)\b`,
     String.raw`\backs?\s+(a\s+)?(new\s+)?fund\b`,
+    // An investor name sitting next to the word "fund" — "Anicut Capital, Chennai Angels
+    // Partner for ₹175 Crore Seed Fund" has no raise verb at all, so the rules above
+    // never fire, yet "Seed" + "₹175 Crore" is enough to look like a round.
+    String.raw`\b(capital|ventures?|partners|angels|lp)\b.{0,60}\bfunds?\b`,
+    String.raw`\bfunds?\b.{0,60}\b(capital|ventures?|partners|angels|lp)\b`,
+    // Not raised yet. Congratulating a founder on a round that is still a rumour is worse
+    // than staying quiet — "Zanskar In Talks To Raise $6 Mn", "reportedly raising".
+    String.raw`\b(in\s+talks\s+to|plans\s+to|planning\s+to|set\s+to|looking\s+to|aims?\s+to|seeks?\s+to|to)\s+raise\b`,
+    String.raw`\breportedly\s+(raising|in\s+talks|seeking)\b`,
     // Exits / M&A.
     String.raw`\b(acquires?|acquisition|to\s+buy|buys|merges?|merger|ipo|goes?\s+public|spac)\b`,
     // TechCrunch house ads.

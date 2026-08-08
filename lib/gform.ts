@@ -1,4 +1,5 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { Type } from '@google/genai';
+import { generateContent } from './gemini';
 import answersData from '@/profile/answers.json';
 import { decodeEntities } from './html';
 import type { GformField, GformPrefill } from './types';
@@ -172,10 +173,6 @@ async function mapAnswers(fields: GformField[]): Promise<Map<string, string>> {
   const fillable = fields.filter((f) => f.type !== 13 && f.entryId);
   if (fillable.length === 0) return new Map();
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY not set');
-  const ai = new GoogleGenAI({ apiKey });
-
   const prompt = [
     'CANDIDATE ANSWERS:',
     JSON.stringify(answers, null, 2),
@@ -194,7 +191,7 @@ async function mapAnswers(fields: GformField[]): Promise<Map<string, string>> {
     ),
   ].join('\n');
 
-  const response = await ai.models.generateContent({
+  const response = await generateContent({
     model: MODEL,
     contents: prompt,
     config: {

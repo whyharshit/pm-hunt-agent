@@ -1,4 +1,5 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { Type } from '@google/genai';
+import { generateContent } from './gemini';
 import resumeData from '@/profile/resume.json';
 import type { ScrapedJd, TailoredResume } from './types';
 
@@ -144,10 +145,6 @@ export async function tailorResume(
   trackerId: string,
   jd: ScrapedJd
 ): Promise<TailoredResume> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY not set');
-
-  const ai = new GoogleGenAI({ apiKey });
   const basePrompt = buildPrompt(jd);
   let lastError = '';
 
@@ -159,7 +156,7 @@ export async function tailorResume(
         ? basePrompt
         : `${basePrompt}\n\n---\n\nYour previous attempt was rejected: ${lastError}. You MUST return exactly the same roles, companies, and bullet counts as the input resume — do not add, drop, merge, or split bullets.`;
 
-    const response = await ai.models.generateContent({
+    const response = await generateContent({
       model: MODEL,
       contents,
       config: {

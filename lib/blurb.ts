@@ -1,4 +1,5 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { Type } from '@google/genai';
+import { generateContent } from './gemini';
 import resumeData from '@/profile/resume.json';
 import type { Blurb, ScrapedJd, TailoredResume } from './types';
 
@@ -101,10 +102,6 @@ export async function writeBlurb(
   jd: ScrapedJd,
   tailored: TailoredResume | null
 ): Promise<Blurb> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY not set');
-
-  const ai = new GoogleGenAI({ apiKey });
   const basePrompt = buildPrompt(jd, tailored);
   let lastError = '';
 
@@ -116,7 +113,7 @@ export async function writeBlurb(
         ? basePrompt
         : `${basePrompt}\n\n---\n\nYour previous attempt was rejected: ${lastError}. The text field MUST be ${MAX_CHARS} characters or fewer — count every character and cut words until it fits.`;
 
-    const response = await ai.models.generateContent({
+    const response = await generateContent({
       model: MODEL,
       contents,
       config: {
