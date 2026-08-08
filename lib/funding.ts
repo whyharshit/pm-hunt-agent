@@ -1,5 +1,5 @@
 import { Type } from '@google/genai';
-import { generateContent } from './gemini';
+import { GeminiQuotaError, generateContent } from './gemini';
 import resumeData from '@/profile/resume.json';
 import { fetchFundingNews } from './sources/fundingnews';
 import { MAX_AGE_DAYS, fetchTechCrunchFundingDetailed, type FundingRaw } from './sources/techcrunch';
@@ -136,7 +136,29 @@ export async function runFundingScan(): Promise<FundingScanResult> {
     if (fresh.length > 0) {
       try {
         extracted = await extractFunding(fresh);
-      } catch {
+      } catch (e) {
+        // The raw-title fallback exists so a Gemini outage still surfaces everything (the
+        // user's call). But a QUOTA failure is different in kind: it is expected daily on
+        // the free tier, and saving under it would permanently stamp dozens of rows with
+        // the headline as the company name — `markFundingSeen` means they never get a
+        // second chance at proper extraction. Better to save nothing and let the next run,
+        // or another key in the pool, do it right. Nothing is lost: they stay unseen.
+        if (e instanceof GeminiQuotaError || /RESOURCE_EXHAUSTED|\b429\b/i.test((e as Error).message)) {
+          await recordAgentRun('funding', {
+            state: 'error',
+            summary: `${fresh.length} raises found but Gemini quota is spent — not saved, will retry next run`,
+            error: (e as Error).message,
+          });
+          return {
+            fetched: raws.length,
+            newCount: 0,
+            usedFallback: false,
+            afterRaiseGate: stats.afterRaiseGate,
+            afterAgeGate: stats.afterAgeGate,
+            perFeed: stats.perFeed,
+            feedErrors: stats.errors,
+          };
+        }
         usedFallback = true; // surface everything anyway, using raw titles
       }
     }
