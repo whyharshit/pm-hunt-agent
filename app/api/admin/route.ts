@@ -386,7 +386,17 @@ export async function GET(request: Request) {
     const queue = items
       .filter((i) => i.status === 'new')
       .filter((i) => !isUnresolvableNewsLink(i.url))
-      .filter((i) => (contacts.get(i.id)?.founders.length ?? 0) === 0)
+      .filter((i) => {
+        const c = contacts.get(i.id);
+        if ((c?.founders.length ?? 0) > 0) return false;
+        // Already read this article and it named nobody at the company. Re-reading spends
+        // a Gemini call to get the same answer, and without this the queue never drains —
+        // `remaining` sat at 18 across four batches, re-processing the same rows.
+        // `model: 'none'` means the row was short-circuited as an unfollowable link and
+        // was never actually read, so those still qualify.
+        if (c && c.model !== 'none' && /names nobody/i.test(c.note ?? '')) return false;
+        return true;
+      })
       .sort((a, b) => Date.parse(b.postedAt) - Date.parse(a.postedAt));
 
     const done: Array<Record<string, unknown>> = [];
