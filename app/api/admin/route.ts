@@ -426,6 +426,64 @@ export async function GET(request: Request) {
     });
   }
 
+  /**
+   * Re-draft rows whose founder became known AFTER the draft was written.
+   *
+   * The drafts are generated once and never revisited, so a row that was drafted while its
+   * contact lookup had failed opens with no greeting at all. Once `recontact` or `enrich`
+   * supplies a name, the draft is stale in the one place the reader notices first — the
+   * prompt's rule 8 opens "Hi <first> —" only when a recipient is passed in. These are the
+   * rows about to be emailed to a real founder, so a generic opener is worth a re-draft.
+   *
+   * Only touches rows that HAVE a founder and whose stored draft does not already greet
+   * them by first name, and never a row already sent.
+   */
+  if (action === 'redraft') {
+    const limit = Math.min(Number(params.get('limit') ?? 5) || 5, 15);
+    const items = await getRecentFunding(200);
+    const ids = items.map((i) => i.id);
+    const [contacts, drafts] = await Promise.all([getFundingContacts(ids), getFundingOutreaches(ids)]);
+
+    const queue = items.filter((i) => {
+      if (i.status !== 'new') return false;
+      const draft = drafts.get(i.id);
+      const contact = contacts.get(i.id);
+      if (!draft || draft.sentAt) return false;
+      const first = contact?.founders[0]?.name.split(' ')[0];
+      if (!first) return false;
+      return !new RegExp(`^\\s*(hi|hey|hello)\\s+${first}\\b`, 'i').test(draft.text);
+    });
+
+    const done: Array<Record<string, unknown>> = [];
+    const failed: Array<Record<string, unknown>> = [];
+    let rateLimited = false;
+
+    for (const item of queue.slice(0, limit)) {
+      try {
+        const outreach = await draftOutreach(item, contacts.get(item.id) ?? null);
+        await saveFundingOutreach(item.id, outreach);
+        done.push({ company: item.company, subject: outreach.subject, text: outreach.text });
+      } catch (e) {
+        const message = (e as Error).message;
+        failed.push({ company: item.company, error: message });
+        if (/RESOURCE_EXHAUSTED|\b429\b/.test(message)) {
+          rateLimited = true;
+          break;
+        }
+      }
+    }
+
+    return Response.json({
+      ok: true,
+      sent: 0,
+      redrafted: done.length,
+      rateLimited,
+      remaining: Math.max(0, queue.length - done.length - failed.length),
+      failed,
+      results: done,
+    });
+  }
+
   const [tracked, leads, jobs] = await Promise.all([
     getRecentTracked(500),
     getRecentWhatsappLeads(500),
