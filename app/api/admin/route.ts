@@ -1,5 +1,6 @@
 import { findContact, isGenericEmail } from '@/lib/contact';
 import { enrichmentConfigured, findPeopleEmails, resolveDomain } from '@/lib/enrich';
+import { renderOutreachTemplate } from '@/lib/outreach-template';
 import { isUnresolvableNewsLink } from '@/lib/sources/fundingnews';
 import { draftOutreach } from '@/lib/funding';
 import { MAX_AGE_DAYS } from '@/lib/sources/techcrunch';
@@ -491,6 +492,53 @@ export async function GET(request: Request) {
       remaining: Math.max(0, queue.length - done.length - failed.length),
       failed,
       results: done,
+    });
+  }
+
+  /**
+   * Re-draft every row using the user's own template (lib/outreach-template.ts) instead of
+   * the LLM. Free — no Gemini call, so it is not bounded by `limit` the way the generated
+   * drafts were, and it can run over the whole queue in one pass even with the quota spent.
+   *
+   * Overwrites existing drafts on purpose: the user supplied this email to replace them.
+   * Rows already sent are never touched, and a row with no founder name is skipped rather
+   * than drafted with a "Hi there" opener.
+   */
+  if (action === 'template-drafts') {
+    const items = await getRecentFunding(200);
+    const ids = items.map((i) => i.id);
+    const [contacts, drafts] = await Promise.all([getFundingContacts(ids), getFundingOutreaches(ids)]);
+
+    const written: Array<{ company: string; to: string }> = [];
+    let skippedNoFounder = 0;
+    let skippedSent = 0;
+
+    for (const item of items) {
+      if (item.status !== 'new') continue;
+      if (drafts.get(item.id)?.sentAt) {
+        skippedSent++;
+        continue;
+      }
+      const outreach = renderOutreachTemplate(item, contacts.get(item.id) ?? null);
+      if (!outreach) {
+        skippedNoFounder++;
+        continue;
+      }
+      await saveFundingOutreach(item.id, outreach);
+      written.push({
+        company: item.company,
+        to: contacts.get(item.id)!.founders[0].name,
+      });
+    }
+
+    return Response.json({
+      ok: true,
+      sent: 0,
+      note: 'drafts rewritten from the user template — nothing was emailed',
+      written: written.length,
+      skippedNoFounder,
+      skippedSent,
+      results: written,
     });
   }
 
