@@ -569,6 +569,69 @@ export async function GET(request: Request) {
     });
   }
 
+  /**
+   * Set a contact by hand: `?action=set-contact&company=Omilia&email=x@y.com&name=First Last`
+   *
+   * The same operation as the dashboard's "Add contact" form, reachable without a browser.
+   * It matters most for rows the unattended sender is about to mail: the address goes to the
+   * front, the supplied name becomes the greeted founder, and the draft is re-rendered so
+   * the greeting can never disagree with the recipient.
+   *
+   * Matched on company name rather than row id because a human invoking this knows the
+   * company, not a hash. Refuses when the name is ambiguous instead of guessing which row.
+   */
+  if (action === 'set-contact') {
+    const company = (params.get('company') ?? '').trim();
+    const email = (params.get('email') ?? '').trim().toLowerCase();
+    const name = (params.get('name') ?? '').trim();
+    if (!company || !/^[^\s@]+@[^\s@]+\.[a-z]{2,24}$/i.test(email)) {
+      return Response.json({ error: 'need ?company= and a valid ?email=' }, { status: 400 });
+    }
+
+    const items = await getRecentFunding(200);
+    const matches = items.filter((i) => i.company.toLowerCase() === company.toLowerCase());
+    if (matches.length === 0) return Response.json({ error: `no funding row named "${company}"` }, { status: 404 });
+    if (matches.length > 1) {
+      return Response.json(
+        { error: `"${company}" matches ${matches.length} rows — set it from the dashboard instead` },
+        { status: 409 }
+      );
+    }
+
+    const item = matches[0];
+    const existing = (await getFundingContacts([item.id])).get(item.id);
+    const founders = name
+      ? [{ name }, ...(existing?.founders ?? []).filter((f) => f.name.toLowerCase() !== name.toLowerCase())]
+      : (existing?.founders ?? []);
+
+    const contact = {
+      id: item.id,
+      founders,
+      website: existing?.website,
+      emails: [
+        { address: email, foundOn: 'added by hand' },
+        ...(existing?.emails ?? []).filter((e) => e.address !== email),
+      ],
+      socials: existing?.socials ?? [],
+      foundAt: new Date().toISOString(),
+      model: existing?.model ?? 'manual',
+      note: existing?.note,
+    };
+    await saveFundingContact(item.id, contact);
+
+    const outreach = renderOutreachTemplate(item, contact);
+    if (outreach) await saveFundingOutreach(item.id, outreach);
+
+    return Response.json({
+      ok: true,
+      sent: 0,
+      company: item.company,
+      greets: founders[0]?.name ?? null,
+      to: email,
+      draftFirstLine: outreach?.text.split('\n')[0] ?? null,
+    });
+  }
+
   const [tracked, leads, jobs] = await Promise.all([
     getRecentTracked(500),
     getRecentWhatsappLeads(500),
