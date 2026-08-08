@@ -1,4 +1,5 @@
 import { runFundingScan } from '@/lib/funding';
+import { fetchFundingNews } from '@/lib/sources/fundingnews';
 import { fetchTechCrunchFundingDetailed } from '@/lib/sources/techcrunch';
 
 export const dynamic = 'force-dynamic';
@@ -16,9 +17,14 @@ async function handle(request: Request) {
   }
 
   const url = new URL(request.url);
+  // Debug must exercise the SAME sources the real scan does, or it reports health for a
+  // subset and a broken feed hides behind a green check.
   if (url.searchParams.get('debug') === 'true') {
-    const res = await fetchTechCrunchFundingDetailed().catch((e) => ({ error: (e as Error).message }));
-    return Response.json({ debug: true, ...res });
+    const [tc, news] = await Promise.all([
+      fetchTechCrunchFundingDetailed().catch((e) => ({ error: (e as Error).message })),
+      fetchFundingNews().catch((e) => ({ error: (e as Error).message })),
+    ]);
+    return Response.json({ debug: true, techcrunch: tc, news });
   }
 
   try {
