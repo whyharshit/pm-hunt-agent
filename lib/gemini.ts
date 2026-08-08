@@ -60,6 +60,19 @@ function isModelUnavailable(e: unknown): boolean {
   return /no longer available|not found|is not supported|NOT_FOUND|\b404\b/i.test(msg);
 }
 
+/**
+ * The KEY itself is refused — revoked, restricted, or its project blocked ("Your project
+ * has been denied access", seen live 2026-08-08 on one key of six). Nothing about the
+ * request is wrong, so the right move is the next key, not failing the caller. Without
+ * this, one bad key in the pool randomly kills whichever rows happen to land on it.
+ */
+function isKeyRejected(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /denied access|PERMISSION_DENIED|API key not valid|API_KEY_INVALID|invalid api key|\b403\b|\b400\b.*api key/i.test(
+    msg
+  );
+}
+
 export function geminiKeys(): string[] {
   const raw = [process.env.GEMINI_API_KEYS ?? '', process.env.GEMINI_API_KEY ?? ''].join(',');
   const keys = raw
@@ -117,6 +130,7 @@ export async function generateContent(
           keyOutOfQuota = true;
           break;
         }
+        if (isKeyRejected(e)) break; // skip this key entirely; try the next one
         if (isModelUnavailable(e)) continue; // this key is on an older/newer model set
         // Anything else (bad prompt, schema mismatch, network) fails identically
         // everywhere, so fail fast instead of burning the pool on it.
