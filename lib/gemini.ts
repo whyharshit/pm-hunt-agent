@@ -90,9 +90,9 @@ export function geminiKeyCount(): number {
 export class GeminiQuotaError extends Error {
   constructor(keyCount: number) {
     super(
-      `all ${keyCount} Gemini key${keyCount === 1 ? '' : 's'} are out of daily quota ` +
-        `(free tier = 20 requests/day/project for gemini-2.5-flash) — add another key to ` +
-        `GEMINI_API_KEYS or wait for the quota to reset`
+      `RESOURCE_EXHAUSTED: all ${keyCount} Gemini key${keyCount === 1 ? '' : 's'} are out of ` +
+        `daily quota (free tier = 20 requests/day/project for ${FLASH_MODEL}) — add a key ` +
+        `from a NEW project to GEMINI_API_KEYS, or wait for the reset`
     );
     this.name = 'GeminiQuotaError';
   }
