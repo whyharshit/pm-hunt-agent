@@ -1,5 +1,6 @@
 import { findContact, isGenericEmail } from '@/lib/contact';
 import { enrichmentConfigured, findPeopleEmails, resolveDomain } from '@/lib/enrich';
+import { isUnresolvableNewsLink } from '@/lib/sources/fundingnews';
 import { draftOutreach } from '@/lib/funding';
 import { MAX_AGE_DAYS } from '@/lib/sources/techcrunch';
 import {
@@ -337,6 +338,66 @@ export async function GET(request: Request) {
       peopleFound,
       errors,
       results,
+    });
+  }
+
+  /**
+   * Re-run the contact lookup on rows whose LINK has since been upgraded.
+   *
+   * A row first seen through Google News was contacted against an interstitial, so it
+   * stored "cannot follow this link" and no founder. Once Serper supplies a real publisher
+   * URL for the same company, `runFundingScan` swaps the URL in — but the stored contact
+   * is still the useless one, and `prepare-outreach` won't revisit it because a draft
+   * already exists. This is the step that closes that gap.
+   *
+   * Only touches rows that are now scrapeable AND still have no founder, so it is safe to
+   * re-run and never spends a call re-doing work that succeeded.
+   */
+  if (action === 'recontact') {
+    const limit = Math.min(Number(params.get('limit') ?? 5) || 5, 15);
+    const items = await getRecentFunding(200);
+    const contacts = await getFundingContacts(items.map((i) => i.id));
+
+    const queue = items
+      .filter((i) => i.status === 'new')
+      .filter((i) => !isUnresolvableNewsLink(i.url))
+      .filter((i) => (contacts.get(i.id)?.founders.length ?? 0) === 0)
+      .sort((a, b) => Date.parse(b.postedAt) - Date.parse(a.postedAt));
+
+    const done: Array<Record<string, unknown>> = [];
+    const failed: Array<Record<string, unknown>> = [];
+    let rateLimited = false;
+
+    for (const item of queue.slice(0, limit)) {
+      try {
+        const contact = await findContact(item);
+        await saveFundingContact(item.id, contact);
+        done.push({
+          company: item.company,
+          founders: contact.founders.map((f) => f.name),
+          website: contact.website ?? null,
+          emails: contact.emails.map((e) => e.address),
+          note: contact.note ?? null,
+        });
+      } catch (e) {
+        const message = (e as Error).message;
+        failed.push({ company: item.company, error: message });
+        if (/RESOURCE_EXHAUSTED|\b429\b/.test(message)) {
+          rateLimited = true;
+          break;
+        }
+      }
+    }
+
+    return Response.json({
+      ok: true,
+      sent: 0,
+      recontacted: done.length,
+      withFounder: done.filter((d) => (d.founders as string[]).length > 0).length,
+      rateLimited,
+      remaining: Math.max(0, queue.length - done.length - failed.length),
+      failed,
+      results: done,
     });
   }
 
