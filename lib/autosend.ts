@@ -1,5 +1,6 @@
 import { addressLooksLikePerson, isGenericEmail } from './contact';
 import { sendOutreachMail } from './mailer';
+import { readResumePdf } from './resume-file';
 import { MAX_AGE_DAYS } from './sources/techcrunch';
 import {
   getFundingContacts,
@@ -108,6 +109,13 @@ export type AutoSendResult = {
   sent: Array<{ company: string; to: string }>;
   failed: Array<{ company: string; to: string; error: string }>;
   dryRun: boolean;
+  /**
+   * Whether the resume is readable IN THIS RUNTIME. The build trace proves the file was
+   * bundled; only reading it inside a deployed function proves it can be attached. Reported
+   * on the dry run so a missing attachment is caught before a founder receives an email
+   * without one.
+   */
+  resumeKB: number | null;
 };
 
 /**
@@ -120,12 +128,14 @@ export async function runAutoSend(opts: { dryRun?: boolean } = {}): Promise<Auto
   const candidates = await autoSendCandidates();
   const batch = candidates.slice(0, cap);
 
+  const resume = await readResumePdf();
   const result: AutoSendResult = {
     cap,
     eligible: candidates.length,
     sent: [],
     failed: [],
     dryRun,
+    resumeKB: resume ? Math.round(resume.length / 1024) : null,
   };
 
   if (dryRun) {
