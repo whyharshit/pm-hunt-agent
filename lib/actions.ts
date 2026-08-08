@@ -24,7 +24,8 @@ import { runTailorPipeline } from './pipeline';
 import { runDiscovery } from './discover';
 import { findContact } from './contact';
 import { draftOutreach, runFundingScan } from './funding';
-import type { FundingItem, TrackedUrl, WhatsappLead } from './types';
+import { renderOutreachTemplate } from './outreach-template';
+import type { FundingContact, FundingItem, TrackedUrl, WhatsappLead } from './types';
 
 const VALID_STATUSES: TrackedUrl['status'][] = ['new', 'drafted', 'submitted', 'rejected', 'skipped'];
 const VALID_FUNDING_STATUSES: FundingItem['status'][] = ['new', 'contacted', 'skipped'];
@@ -141,6 +142,66 @@ export async function findFundingContact(formData: FormData): Promise<void> {
       note: `lookup failed: ${(e as Error).message}`,
     });
   }
+  revalidatePath('/');
+}
+
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[a-z]{2,24}$/i;
+
+/**
+ * Add a contact by hand — for the rows the automated lookup got wrong or couldn't reach.
+ *
+ * This exists because the harvester's real hit rate for a FOUNDER's address is low: sites
+ * publish `info@`, Hunter is unsure which domain is the company, and some articles name
+ * nobody. The user pulls those from ContactOut and pastes them here rather than the agent
+ * guessing, which is the one thing it must never do.
+ *
+ * A name is accepted alongside the address and takes the lead position, because the email
+ * opens "Hi <first name>" — supplying the address without the person would keep greeting
+ * whoever the lookup had guessed. The draft is re-rendered here for the same reason, so
+ * the greeting can never disagree with the recipient.
+ *
+ * Provenance is preserved: `foundOn` records that a human supplied this, so it stays
+ * distinguishable from a scraped address forever.
+ */
+export async function addFundingContactEmail(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  const emailRaw = formData.get('email');
+  const nameRaw = formData.get('name');
+  if (typeof id !== 'string' || typeof emailRaw !== 'string') return;
+
+  const email = emailRaw.trim().toLowerCase();
+  if (!EMAIL_SHAPE.test(email)) return;
+  const name = typeof nameRaw === 'string' ? nameRaw.trim() : '';
+
+  const [item, existing] = await Promise.all([getFundingItem(id), getFundingContact(id)]);
+  if (!item) return;
+
+  const founders = existing?.founders ?? [];
+  // A supplied name leads: it is the person this address belongs to, so it must be the one
+  // greeted. Any previously-guessed people are kept behind it, not discarded.
+  const merged = name
+    ? [{ name }, ...founders.filter((f) => f.name.toLowerCase() !== name.toLowerCase())]
+    : founders;
+
+  const contact: FundingContact = {
+    id,
+    founders: merged,
+    website: existing?.website,
+    emails: [
+      { address: email, foundOn: 'added by hand' },
+      ...(existing?.emails ?? []).filter((e) => e.address !== email),
+    ],
+    socials: existing?.socials ?? [],
+    foundAt: new Date().toISOString(),
+    model: existing?.model ?? 'manual',
+    note: existing?.note,
+  };
+  await saveFundingContact(id, contact);
+
+  // Re-render so the greeting matches the person just added. Free — no model involved.
+  const outreach = renderOutreachTemplate(item, contact);
+  if (outreach) await saveFundingOutreach(id, outreach);
+
   revalidatePath('/');
 }
 

@@ -1,4 +1,5 @@
-import { draftFundingOutreach, findFundingContact, sendFundingEmail, setFundingStatus } from '@/lib/actions';
+import { addFundingContactEmail, draftFundingOutreach, findFundingContact, sendFundingEmail, setFundingStatus } from '@/lib/actions';
+import { addressLooksLikePerson, isGenericEmail } from '@/lib/contact';
 import { fmtDate, hostOf } from '@/lib/format';
 import { CopyButton } from './copy-button';
 import type { FundingContact, FundingItem, FundingOutreach } from '@/lib/types';
@@ -57,6 +58,39 @@ function ContactLine({ contact }: { contact: FundingContact }) {
   );
 }
 
+/**
+ * Paste a contact the agent couldn't find (ContactOut, LinkedIn, a company About page).
+ * Always available, not just on failed rows — the harvester's founder hit rate is low
+ * enough that the manual path is a normal route, not an error path. Adding a name here
+ * re-renders the draft so the greeting follows the address.
+ */
+function AddContactRow({ item }: { item: FundingItem }) {
+  return (
+    <form action={addFundingContactEmail} className="flex flex-wrap items-center gap-2">
+      <input type="hidden" name="id" value={item.id} />
+      <input
+        type="email"
+        name="email"
+        required
+        placeholder="founder@company.com"
+        className="h-7 w-52 rounded border border-zinc-300 bg-white px-2 font-mono text-xs text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+      />
+      <input
+        type="text"
+        name="name"
+        placeholder="Their name (sets the greeting)"
+        className="h-7 w-52 rounded border border-zinc-300 bg-white px-2 text-xs text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+      />
+      <button
+        type="submit"
+        className="h-7 rounded border border-zinc-300 bg-white px-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+      >
+        Add contact
+      </button>
+    </form>
+  );
+}
+
 function SendRow({
   item,
   draft,
@@ -95,18 +129,37 @@ function SendRow({
     );
   }
 
+  // The email opens "Hi <first name>", so the default recipient must be a person — and
+  // ideally THAT person. Preferring a matching address over the harvester's ranking is what
+  // stops "Hi Paolo," defaulting to booking@weroad.com.
+  const greeted = contact.founders[0]?.name;
+  const byName = greeted
+    ? contact.emails.find((e) => addressLooksLikePerson(e.address, greeted))
+    : undefined;
+  const best = byName ?? contact.emails.find((e) => !isGenericEmail(e.address)) ?? contact.emails[0];
+  const mismatch = greeted ? !addressLooksLikePerson(best.address, greeted) : false;
+
   return (
     <form action={sendFundingEmail} className="flex flex-wrap items-center gap-2">
       <input type="hidden" name="id" value={item.id} />
       <select
         name="to"
-        defaultValue={contact.emails[0].address}
+        defaultValue={best.address}
         className="h-7 rounded border border-zinc-300 bg-white px-2 font-mono text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
       >
         {contact.emails.map((e) => (
-          <option key={e.address} value={e.address}>{e.address}</option>
+          <option key={e.address} value={e.address}>
+            {e.address}
+            {isGenericEmail(e.address) ? ' (shared inbox)' : ''}
+          </option>
         ))}
       </select>
+      {mismatch && (
+        <span className="text-[11px] font-medium text-red-700 dark:text-red-400">
+          ⚠ opens “Hi {greeted!.replace(/^(dr|mr|mrs|ms|prof)\.?\s+/i, '').split(' ')[0]},” but
+          this address isn’t theirs — add the right one below
+        </span>
+      )}
       <button
         type="submit"
         className="h-7 rounded border border-amber-400 bg-amber-50 px-2 text-xs font-semibold text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200 dark:hover:bg-amber-900"
@@ -218,7 +271,10 @@ export function FundingSection({
                 {contact && <ContactLine contact={contact} />}
 
                 {draft && (
-                  <p className="rounded border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+                  // whitespace-pre-line: the template email is multi-line plain text with a
+                  // bulleted list, and a bare <p> collapses it into one paragraph — so the
+                  // preview would not match what actually gets sent.
+                  <p className="whitespace-pre-line rounded border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
                     {draft.text}
                   </p>
                 )}
@@ -226,6 +282,8 @@ export function FundingSection({
                 {draft && contact && contact.emails.length > 0 && (
                   <SendRow item={it} draft={draft} contact={contact} mailerReady={mailerReady} />
                 )}
+
+                <AddContactRow item={it} />
               </li>
             );
           })}

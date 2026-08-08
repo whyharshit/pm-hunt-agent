@@ -35,17 +35,55 @@ const SOCIAL_NOISE_RE = /linkedin\.com\/(posts|pulse|feed)\/|\/status\/|\/share\
 const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}\b/g;
 const EMAIL_REJECT =
   /(noreply|no-reply|donotreply|example\.(com|org)|sentry\.io|wixpress|\.(png|jpe?g|gif|webp|svg|css|js)$|@\d+x|schema\.org|w3\.org)/i;
+/**
+ * ⚠️ THIS LIST IS LOAD-BEARING — every omission mails a founder's name to a shared inbox.
+ * `care`, `connect` and `booking` were missing on 2026-08-08 and three rows were counted
+ * as person-reachable: an email opening "Hi Paolo," was queued to booking@weroad.com,
+ * "Hi Aravind," to care@rideriver.com, "Hi Ashish," to connect@consint.ai. That reads as a
+ * botched mail-merge and burns the contact. Add to this list freely; a false positive only
+ * costs a skipped row.
+ */
 const GENERIC_EMAIL =
-  /^(info|hello|contact|support|team|admin|sales|press|hi|help|enquiries|inquiries|careers|jobs|hr|marketing|billing|noc|agent|no-?reply)@/i;
+  /^(info|hello|hey|contact|contactus|connect|reach|support|care|customercare|service|help|helpdesk|team|admin|office|general|sales|booking|bookings|orders|press|media|pr|marketing|partnerships|partner|billing|accounts|finance|legal|hi|enquiries|inquiries|enquiry|careers|jobs|recruit|recruiting|hr|people|talent|noc|agent|bot|mail|email|newsletter|notifications|feedback|no-?reply|do-?not-?reply)@/i;
 
 /**
- * A shared inbox, not a person. Worth knowing downstream: outreach addressed to a founder
- * that lands in `support@` is a support ticket, not an introduction — measured 2026-08-08,
- * every address this harvester found across 11 freshly-funded companies was one of these.
- * Callers use it to avoid reporting such a row as "ready to send to a founder".
+ * A shared inbox, not a person. Outreach addressed to a founder that lands in `support@`
+ * is a support ticket, not an introduction — measured 2026-08-08, every address this
+ * harvester found across 11 freshly-funded companies was one of these.
  */
 export function isGenericEmail(address: string): boolean {
   return GENERIC_EMAIL.test(address);
+}
+
+/**
+ * Does this address plausibly belong to THIS person? The generic-inbox list can only catch
+ * names it knows, so it is a denylist with an unbounded tail — `desk@`, `studio@`, `hola@`
+ * would all slip through. This is the positive check that closes it: the email greets
+ * someone by first name, so the address must relate to that name or the pairing is wrong
+ * regardless of what the local part happens to be called.
+ *
+ * Accepts the shapes real work addresses take: garima@, sidd@, thanh.dang@, hannaroos@,
+ * pmizera@ (initial+surname), g.luthra@, luthra.garima@.
+ */
+export function addressLooksLikePerson(address: string, personName: string): boolean {
+  const local = address.split('@')[0]?.toLowerCase().replace(/[^a-z]/g, '') ?? '';
+  if (!local) return false;
+
+  const parts = personName
+    .replace(/^(dr|mr|mrs|ms|prof)\.?\s+/i, '')
+    .toLowerCase()
+    .split(/\s+/)
+    .map((p) => p.replace(/[^a-z]/g, ''))
+    .filter((p) => p.length > 1);
+  if (parts.length === 0) return false;
+
+  const [first] = parts;
+  const last = parts[parts.length - 1];
+
+  if (local.includes(first) || local.includes(last)) return true;
+  // Initial + surname, and the reverse: pmizera, mizerap.
+  if (local === `${first[0]}${last}` || local === `${last}${first[0]}`) return true;
+  return false;
 }
 
 const CONTACT_LINK_RE = /contact|about|team|people|company/i;

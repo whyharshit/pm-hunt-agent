@@ -320,7 +320,13 @@ export async function GET(request: Request) {
           credited++;
           const enriched = await findPeopleEmails(domain);
           if (enriched) {
-            people = enriched.people.length ? enriched.people : people;
+            // NEVER replace a founder the ARTICLE named. The funding announcement says who
+            // founded the company; Hunter only ranks by seniority over whoever it has
+            // scraped. On Omilia that swap put "Hi Petr" (an exec) on an email that should
+            // have greeted Dimitris Vassos, the founder the article named. Article-derived
+            // people lead; Hunter's are appended for their addresses.
+            const known = new Set(people.map((p) => p.name.toLowerCase()));
+            people = [...people, ...enriched.people.filter((p) => !known.has(p.name.toLowerCase()))];
             emails = enriched.emails.length ? enriched.emails : emails;
             peopleFound += enriched.people.length;
           }
