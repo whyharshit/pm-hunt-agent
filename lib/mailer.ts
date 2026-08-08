@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { RESUME_FILENAME, readResumePdf } from './resume-file';
 import { recordAgentRun, setAgentRunning } from './storage';
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
@@ -63,13 +64,17 @@ export function mailerConfigured(): boolean {
  * variant: mass cold email burns the sending domain, and this project's whole premise
  * is that a human reviews every message before it goes out.
  */
+export type Attachment = { filename: string; content: Buffer };
+
 export async function sendMail(opts: {
   to: string;
   subject: string;
   text: string;
   replyTo?: string;
+  attachments?: Attachment[];
 }): Promise<SendResult> {
   const transport = config();
+  const attachments = opts.attachments ?? [];
 
   if (transport.kind === 'gmail') {
     // Port 587 + STARTTLS rather than 465/implicit TLS: Vercel's Node runtime allows the
@@ -89,6 +94,9 @@ export async function sendMail(opts: {
         subject: opts.subject,
         text: opts.text,
         ...(opts.replyTo ? { replyTo: opts.replyTo } : {}),
+        ...(attachments.length
+          ? { attachments: attachments.map((a) => ({ filename: a.filename, content: a.content })) }
+          : {}),
       });
       if (!info.messageId) throw new Error('Gmail accepted the message but returned no id');
       return { id: info.messageId, to: opts.to };
@@ -117,6 +125,15 @@ export async function sendMail(opts: {
       subject: opts.subject,
       text: opts.text,
       ...(opts.replyTo ? { reply_to: opts.replyTo } : {}),
+      // Resend takes attachment bytes as base64, unlike nodemailer's Buffer.
+      ...(attachments.length
+        ? {
+            attachments: attachments.map((a) => ({
+              filename: a.filename,
+              content: a.content.toString('base64'),
+            })),
+          }
+        : {}),
     }),
   });
 
@@ -137,10 +154,19 @@ export async function sendOutreachMail(opts: {
 }): Promise<SendResult> {
   await setAgentRunning('mailer');
   try {
-    const result = await sendMail(opts);
+    // Every outreach email carries the resume (user's instruction 2026-08-09). Attached
+    // here, in the single funnel all outreach passes through, so the manual dashboard send
+    // and the unattended cron send can never diverge on what the founder receives.
+    const resume = await readResumePdf();
+    const result = await sendMail({
+      ...opts,
+      ...(resume ? { attachments: [{ filename: RESUME_FILENAME, content: resume }] } : {}),
+    });
     await recordAgentRun('mailer', {
       state: 'ok',
-      summary: `sent to ${opts.to} (${opts.company})`,
+      // Records whether the resume actually went, so a silently missing attachment is
+      // visible on the agent card instead of being discovered by a founder.
+      summary: `sent to ${opts.to} (${opts.company})${resume ? ' + resume' : ' — NO RESUME ATTACHED'}`,
       error: null,
     });
     return result;
