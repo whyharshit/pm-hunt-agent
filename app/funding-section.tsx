@@ -1,5 +1,14 @@
-import { addFundingContactEmail, draftFundingOutreach, findFundingContact, sendFundingEmail, setFundingStatus } from '@/lib/actions';
+import {
+  addFundingContactEmail,
+  draftFundingOutreach,
+  findFundingContact,
+  resetFundingDraft,
+  sendFundingEmail,
+  setFundingStatus,
+  updateFundingDraft,
+} from '@/lib/actions';
 import { addressLooksLikePerson, isGenericEmail } from '@/lib/contact';
+import { isEditedDraft } from '@/lib/outreach-template';
 import { fmtDate, hostOf } from '@/lib/format';
 import { CopyButton } from './copy-button';
 import type { FundingContact, FundingItem, FundingOutreach } from '@/lib/types';
@@ -87,6 +96,68 @@ function AddContactRow({ item }: { item: FundingItem }) {
       >
         Add contact
       </button>
+    </form>
+  );
+}
+
+/**
+ * The draft, editable in place. A sent draft becomes read-only: it is a record of what
+ * actually left, and editing it would make the dashboard lie about what the founder got.
+ *
+ * Saving stamps the draft as hand-edited so a later `?action=template-drafts` run skips it
+ * — that action rewrites drafts in bulk and would otherwise wipe every edit made here.
+ * "Reset to template" is the way back, so editing is never a one-way door.
+ */
+function DraftEditor({ item, draft }: { item: FundingItem; draft: FundingOutreach }) {
+  if (draft.sentAt) {
+    return (
+      <p className="whitespace-pre-line rounded border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+        {draft.text}
+      </p>
+    );
+  }
+
+  const edited = isEditedDraft(draft.model);
+
+  return (
+    <form action={updateFundingDraft} className="space-y-1">
+      <input type="hidden" name="id" value={item.id} />
+      <input
+        type="text"
+        name="subject"
+        defaultValue={draft.subject ?? ''}
+        placeholder="Subject"
+        className="w-full rounded border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
+      />
+      <textarea
+        name="text"
+        defaultValue={draft.text}
+        // Tall enough for the whole template so editing doesn't happen down a peephole.
+        rows={18}
+        className="w-full resize-y rounded border border-zinc-200 bg-white px-3 py-2 font-mono text-xs leading-relaxed text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300"
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="submit"
+          className="h-7 rounded border border-zinc-300 bg-white px-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          Save draft
+        </button>
+        {edited && (
+          <>
+            <span className="text-[11px] text-amber-700 dark:text-amber-400">
+              edited by hand · bulk re-drafts skip this row
+            </span>
+            <button
+              type="submit"
+              formAction={resetFundingDraft}
+              className="h-7 rounded border border-zinc-300 bg-white px-2 text-[11px] text-zinc-500 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            >
+              Reset to template
+            </button>
+          </>
+        )}
+      </div>
     </form>
   );
 }
@@ -270,14 +341,7 @@ export function FundingSection({
 
                 {contact && <ContactLine contact={contact} />}
 
-                {draft && (
-                  // whitespace-pre-line: the template email is multi-line plain text with a
-                  // bulleted list, and a bare <p> collapses it into one paragraph — so the
-                  // preview would not match what actually gets sent.
-                  <p className="whitespace-pre-line rounded border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
-                    {draft.text}
-                  </p>
-                )}
+                {draft && <DraftEditor item={it} draft={draft} />}
 
                 {draft && contact && contact.emails.length > 0 && (
                   <SendRow item={it} draft={draft} contact={contact} mailerReady={mailerReady} />

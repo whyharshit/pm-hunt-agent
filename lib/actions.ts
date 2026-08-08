@@ -24,7 +24,7 @@ import { runTailorPipeline } from './pipeline';
 import { runDiscovery } from './discover';
 import { findContact } from './contact';
 import { draftOutreach, runFundingScan } from './funding';
-import { renderOutreachTemplate } from './outreach-template';
+import { EDITED_MODEL_SUFFIX, isEditedDraft, renderOutreachTemplate } from './outreach-template';
 import type { FundingContact, FundingItem, TrackedUrl, WhatsappLead } from './types';
 
 const VALID_STATUSES: TrackedUrl['status'][] = ['new', 'drafted', 'submitted', 'rejected', 'skipped'];
@@ -142,6 +142,39 @@ export async function findFundingContact(formData: FormData): Promise<void> {
       note: `lookup failed: ${(e as Error).message}`,
     });
   }
+  revalidatePath('/');
+}
+
+/** Edit a draft on the dashboard before sending it. */
+export async function updateFundingDraft(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  const text = formData.get('text');
+  const subject = formData.get('subject');
+  if (typeof id !== 'string' || typeof text !== 'string') return;
+  if (!text.trim()) return; // an empty body is never an intended edit
+
+  const existing = await getFundingOutreach(id);
+  if (!existing) return;
+
+  await saveFundingOutreach(id, {
+    ...existing,
+    text,
+    subject: typeof subject === 'string' && subject.trim() ? subject.trim() : existing.subject,
+    model: isEditedDraft(existing.model)
+      ? existing.model
+      : `${existing.model}${EDITED_MODEL_SUFFIX}`,
+  });
+  revalidatePath('/');
+}
+
+/** Drop a hand-edit and go back to the template, so an edit is never a one-way door. */
+export async function resetFundingDraft(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  if (typeof id !== 'string') return;
+  const [item, contact] = await Promise.all([getFundingItem(id), getFundingContact(id)]);
+  if (!item) return;
+  const outreach = renderOutreachTemplate(item, contact);
+  if (outreach) await saveFundingOutreach(id, outreach);
   revalidatePath('/');
 }
 

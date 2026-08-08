@@ -55,7 +55,7 @@ check('strips honorific', !!dr && dr.text.startsWith('Hi Chinmay,'));
 // --- the substance the user supplied must survive verbatim ---
 const t = full!.text;
 for (const phrase of [
-  'Saw that Vaaree recently raised Rs 65 Cr in its Series A — congratulations!',
+  'Saw that Vaaree recently raised Rs 65 Cr in its Series A. Congratulations!',
   '4th-year student at IIT Kharagpur',
   'reduced quote turnaround from 2 hours to 15 minutes',
   '2,000+ sales signals/month across 386 BFSI companies',
@@ -72,6 +72,8 @@ check('subject is the users', (full!.subject ?? '') === 'Just saw the funding ne
 check('marked as template, not a model', full!.model === 'template:user-v1');
 // The 320-char cap applied to the generated draft; this email is deliberately long.
 check('long-form email survives', t.length > 900);
+// The user asked for no em dashes anywhere: they read as machine-written copy.
+check('no em or en dashes', !/[—–]/.test(t));
 check('no unreplaced placeholders', !/\{\{|\}\}/.test(t) && !/\{\{/.test(full!.subject ?? ''));
 
 console.log(`\n--- rendered (${t.length} chars) ---\n${t}`);

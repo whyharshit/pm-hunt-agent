@@ -1,6 +1,6 @@
 import { addressLooksLikePerson, findContact, isGenericEmail } from '@/lib/contact';
 import { enrichmentConfigured, findPeopleEmails, resolveDomain } from '@/lib/enrich';
-import { firstName, renderOutreachTemplate } from '@/lib/outreach-template';
+import { firstName, isEditedDraft, renderOutreachTemplate } from '@/lib/outreach-template';
 import { isUnresolvableNewsLink } from '@/lib/sources/fundingnews';
 import { draftOutreach } from '@/lib/funding';
 import { MAX_AGE_DAYS } from '@/lib/sources/techcrunch';
@@ -527,11 +527,19 @@ export async function GET(request: Request) {
     const written: Array<{ company: string; greeting: string }> = [];
     let skippedNoFounder = 0;
     let skippedSent = 0;
+    let skippedEdited = 0;
 
     for (const item of items) {
       if (item.status !== 'new') continue;
-      if (drafts.get(item.id)?.sentAt) {
+      const existingDraft = drafts.get(item.id);
+      if (existingDraft?.sentAt) {
         skippedSent++;
+        continue;
+      }
+      // Never clobber a hand-edit. This action overwrites drafts by design, which is right
+      // for template changes and catastrophic for edits the user made on the dashboard.
+      if (existingDraft && isEditedDraft(existingDraft.model)) {
+        skippedEdited++;
         continue;
       }
       const outreach = renderOutreachTemplate(item, contacts.get(item.id) ?? null);
@@ -556,6 +564,7 @@ export async function GET(request: Request) {
       written: written.length,
       skippedNoFounder,
       skippedSent,
+      skippedEdited,
       results: written,
     });
   }

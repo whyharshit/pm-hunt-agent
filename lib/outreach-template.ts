@@ -21,6 +21,24 @@ import type { FundingContact, FundingItem, FundingOutreach } from './types';
 const SUBJECT = 'Just saw the funding news, would love to help build!';
 
 /**
+ * Suffix on `FundingOutreach.model` marking a draft a human edited on the dashboard.
+ *
+ * Load-bearing: `?action=template-drafts` rewrites drafts in bulk from this template, so
+ * without the flag one bulk run would silently destroy every hand-edit. That action skips
+ * anything carrying it.
+ *
+ * It lives here rather than in lib/actions.ts because that file is `'use server'`, and
+ * Next.js only permits async function exports from a server-actions module — a plain
+ * `export const` there fails the build.
+ */
+export const EDITED_MODEL_SUFFIX = '+edited';
+
+/** Has this draft been hand-edited, and so must survive a bulk re-draft? */
+export function isEditedDraft(model: string): boolean {
+  return model.endsWith(EDITED_MODEL_SUFFIX);
+}
+
+/**
  * How the raise reads inside "recently raised ___". Both fields are optional on a
  * FundingItem, and the sentence has to stay grammatical in all four combinations — an empty
  * `{{Funding}}` would otherwise produce "recently raised  — congratulations!".
@@ -58,7 +76,10 @@ export function renderOutreachTemplate(
   const text = [
     `Hi ${firstName(founder)},`,
     '',
-    `Saw that ${item.company} recently raised ${renderFunding(item)} — congratulations! It's an exciting stage to be at, and I'd love to explore whether I could be useful as you scale.`,
+    // No em dashes anywhere in this email (user's instruction 2026-08-08). Both were mine,
+    // added when fixing the source text's punctuation — a full stop and a comma read more
+    // naturally here anyway, and em dashes are a common tell for machine-written copy.
+    `Saw that ${item.company} recently raised ${renderFunding(item)}. Congratulations! It's an exciting stage to be at, and I'd love to explore whether I could be useful as you scale.`,
     '',
     "I'm Shivansh, a 4th-year student at IIT Kharagpur, and I've spent the last year working across AI, product, growth, and early-stage startups.",
     '',
@@ -72,7 +93,7 @@ export function renderOutreachTemplate(
     '',
     "I'm not looking for a narrowly defined internship. Give me a messy problem, and I'll figure it out.",
     '',
-    "With the recent funding, I imagine there's a lot on your plate — and I'd love to take one or two things off it.",
+    "With the recent funding, I imagine there's a lot on your plate, and I'd love to take one or two things off it.",
     '',
     'Would you be open to a quick 15-minute chat?',
     '',
