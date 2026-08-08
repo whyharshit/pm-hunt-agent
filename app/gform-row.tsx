@@ -1,4 +1,6 @@
 import { prefillGformTracked } from '@/lib/actions';
+import { buildFormFillPrompt } from '@/lib/form-prompt';
+import { CopyButton } from './copy-button';
 import type { GformPrefill, TrackedUrl } from '@/lib/types';
 
 /**
@@ -15,6 +17,7 @@ export function GformRow({
   prefill: GformPrefill | undefined;
   answersReady: boolean;
 }) {
+  const formPrompt = buildFormFillPrompt(tracked);
   // The one condition the pre-filler can never overcome; matched on the message fetchForm
   // writes so the UI and lib/gform.ts cannot drift apart on wording.
   const signInRestricted = /requires Google sign-in/i.test(tracked.tailorError ?? '');
@@ -76,6 +79,15 @@ export function GformRow({
           </a>
         </div>
       )}
+
+      {/* Works where the server-side pre-filler cannot: sign-in-restricted Google Forms,
+          and every non-Google form (Melento, Lever, Internshala). */}
+      <div className="flex flex-wrap items-center gap-2">
+        <CopyButton text={formPrompt} label="Copy form-filling prompt" />
+        <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
+          paste into Claude in Chrome with the form open. It fills, you submit.
+        </span>
+      </div>
 
       {!answersReady && (
         <p className="text-[11px] text-amber-700 dark:text-amber-400">

@@ -16,6 +16,7 @@ import { LIVE_AGENT_IDS } from '@/lib/agents';
 import { setTrackedStatus, tailorTracked } from '@/lib/actions';
 import { fmtDate, hostOf } from '@/lib/format';
 import { answersFilled } from '@/lib/gform';
+import { buildFormFillPrompt } from '@/lib/form-prompt';
 import { AgentsPanel } from './agents-panel';
 import { Nav } from './nav';
 import { WhatsappSection } from './whatsapp-section';
@@ -244,12 +245,25 @@ export default async function Home() {
                     </div>
                   )}
 
-                  {t.tier === 'green' && (
+                  {t.tier === 'green' ? (
                     <GformRow
                       tracked={t}
                       prefill={gformPrefills.get(t.id)}
                       answersReady={answersReady}
                     />
+                  ) : (
+                    // Non-Google forms (Melento, Lever, Greenhouse, Internshala) have no
+                    // prefill-by-URL feature at all, so the browser-assistant prompt is the
+                    // only filling help available for them.
+                    <div className="flex flex-wrap items-center gap-2 sm:pl-9">
+                      <CopyButton
+                        text={buildFormFillPrompt(t)}
+                        label="Copy form-filling prompt"
+                      />
+                      <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                        paste into Claude in Chrome with the form open. It fills, you submit.
+                      </span>
+                    </div>
                   )}
                 </li>
                 );
