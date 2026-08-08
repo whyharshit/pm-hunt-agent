@@ -1,4 +1,4 @@
-import { findContact, isGenericEmail } from '@/lib/contact';
+import { addressLooksLikePerson, findContact, isGenericEmail } from '@/lib/contact';
 import { enrichmentConfigured, findPeopleEmails, resolveDomain } from '@/lib/enrich';
 import { firstName, renderOutreachTemplate } from '@/lib/outreach-template';
 import { isUnresolvableNewsLink } from '@/lib/sources/fundingnews';
@@ -113,12 +113,21 @@ export async function GET(request: Request) {
       (r) => r.status === 'new' && r.draft && !r.draft.sentAt && (r.contact?.emails.length ?? 0) > 0
     );
 
-    // Split by whether a HUMAN can actually be reached. The drafts open "Hi <founder> —"
-    // and ask for an internship; delivered to support@ that is a support ticket, so
-    // counting those as ready would be the same lying green light the mailer avoided by
-    // leaving MAIL_FROM unset. Measured 2026-08-08: personal was 0 of 11.
-    const toAPerson = readyToSend.filter((r) => r.contact!.emails.some((e) => !isGenericEmail(e)));
-    const genericOnly = readyToSend.filter((r) => r.contact!.emails.every((e) => isGenericEmail(e)));
+    // Split by whether the GREETED PERSON can actually be reached — not merely whether some
+    // address isn't on the shared-inbox denylist. That weaker test counted
+    // supplier@rideriver.com and coordinators@weroad.com as person-reachable on rows whose
+    // email opens "Hi Aravind," and "Hi Paolo,". A denylist can never enumerate every
+    // shared mailbox, so the number a human reads to decide what to send has to be built on
+    // the positive check.
+    const reaches = (r: (typeof rows)[number]) => {
+      const greeted = r.contact?.founders[0]?.name;
+      if (!greeted) return false;
+      return r.contact!.emails.some(
+        (e) => !isGenericEmail(e) && addressLooksLikePerson(e, greeted)
+      );
+    };
+    const toAPerson = readyToSend.filter(reaches);
+    const genericOnly = readyToSend.filter((r) => !reaches(r));
 
     return Response.json({
       rows,
@@ -138,7 +147,7 @@ export async function GET(request: Request) {
         id: r.id,
         company: r.company,
         emails: r.contact!.emails,
-        reachesAPerson: r.contact!.emails.some((e) => !isGenericEmail(e)),
+        reachesAPerson: reaches(r),
       })),
     });
   }
