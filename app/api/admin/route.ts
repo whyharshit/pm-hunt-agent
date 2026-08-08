@@ -1,4 +1,5 @@
 import { findContact, isGenericEmail } from '@/lib/contact';
+import { enrichmentConfigured, findPeopleEmails, resolveDomain } from '@/lib/enrich';
 import { draftOutreach } from '@/lib/funding';
 import { MAX_AGE_DAYS } from '@/lib/sources/techcrunch';
 import {
@@ -67,7 +68,8 @@ export async function GET(request: Request) {
     }
   }
 
-  const action = new URL(request.url).searchParams.get('action');
+  const params = new URL(request.url).searchParams;
+  const action = params.get('action');
 
   // Answered before the tracker/jobs reads below, which this action has no use for.
   if (action === 'funding') {
@@ -152,7 +154,7 @@ export async function GET(request: Request) {
   // article fetch can't run past the function timeout; run it again for the next batch.
   if (action === 'prepare-outreach') {
     // Default 2 because of the 5-req/min Gemini free-tier ceiling described below.
-    const limit = Math.min(Number(new URL(request.url).searchParams.get('limit') ?? 2) || 2, 12);
+    const limit = Math.min(Number(params.get('limit') ?? 2) || 2, 12);
     const items = await getRecentFunding(200);
     const existing = await getFundingOutreaches(items.map((i) => i.id));
 
@@ -228,6 +230,113 @@ export async function GET(request: Request) {
       remaining: Math.max(0, queue.length - attempted),
       skippedStale: { count: stale.length, maxAgeDays: MAX_AGE_DAYS, items: stale },
       results: ok,
+    });
+  }
+
+  /**
+   * Fill in the contact details the article scrape could not get — the 60-odd Google News
+   * rows have no founder and no website, because their links are JS interstitials.
+   *
+   *   ?action=enrich            free phase only: company name → domain, over every row
+   *                             that lacks one. Hunter's domain-finder consumes no credits.
+   *   ?action=enrich&spend=N    then ALSO spend N credits on domain-search, newest rows
+   *                             first, to get named people + personal addresses.
+   *
+   * `spend` defaults to 0 on purpose. Hunter's free plan is ~25 searches/month against 60+
+   * rows, so burning them automatically would empty the quota on whatever happened to be
+   * at the top of the queue. Sends nothing, ever.
+   */
+  if (action === 'enrich') {
+    if (!enrichmentConfigured()) {
+      return Response.json(
+        { error: 'HUNTER_API_KEY not set — enrichment is off', spent: 0 },
+        { status: 400 }
+      );
+    }
+
+    const spendBudget = Math.min(Math.max(Number(params.get('spend') ?? 0) || 0, 0), 25);
+    const items = await getRecentFunding(200);
+    const contacts = await getFundingContacts(items.map((i) => i.id));
+
+    // Newest first: a fresher raise is a better cold-outreach target, so if the credit
+    // budget runs out it should run out on the oldest rows.
+    const ordered = [...items].sort((a, b) => Date.parse(b.postedAt) - Date.parse(a.postedAt));
+
+    let domainsFound = 0;
+    let credited = 0;
+    let peopleFound = 0;
+    const results: Array<Record<string, unknown>> = [];
+    const errors: string[] = [];
+
+    for (const item of ordered) {
+      if (item.status !== 'new') continue;
+      const existing = contacts.get(item.id);
+      const alreadyHasPerson = (existing?.emails.length ?? 0) > 0 && (existing?.founders.length ?? 0) > 0;
+      if (alreadyHasPerson) continue;
+
+      try {
+        // --- free phase: resolve the company's own domain ---
+        let domain = existing?.website?.replace(/^https?:\/\//, '') ?? '';
+        let matchedName: string | undefined;
+        if (!domain) {
+          const found = await resolveDomain(item.company);
+          if (!found) continue;
+          domain = found.domain;
+          matchedName = found.matchedName;
+          domainsFound++;
+        }
+
+        let people = existing?.founders ?? [];
+        let emails = existing?.emails ?? [];
+
+        // --- paid phase: only while the caller's credit budget lasts ---
+        if (credited < spendBudget) {
+          credited++;
+          const enriched = await findPeopleEmails(domain);
+          if (enriched) {
+            people = enriched.people.length ? enriched.people : people;
+            emails = enriched.emails.length ? enriched.emails : emails;
+            peopleFound += enriched.people.length;
+          }
+        }
+
+        await saveFundingContact(item.id, {
+          id: item.id,
+          founders: people,
+          website: `https://${domain}`,
+          emails,
+          socials: existing?.socials ?? [],
+          foundAt: new Date().toISOString(),
+          model: 'hunter.io',
+          note: matchedName && matchedName.toLowerCase() !== item.company.toLowerCase()
+            ? `domain resolved from company name — Hunter matched "${matchedName}"; check it is the right company`
+            : existing?.note,
+        });
+
+        results.push({
+          id: item.id,
+          company: item.company,
+          domain,
+          founders: people.map((p) => p.name),
+          emails: emails.map((e) => e.address),
+        });
+      } catch (e) {
+        const msg = (e as Error).message;
+        errors.push(`${item.company}: ${msg}`);
+        // Out of credits or rate-limited: stop rather than hammer the API for every row.
+        if (/\b429\b|credit/i.test(msg)) break;
+      }
+    }
+
+    return Response.json({
+      ok: true,
+      sent: 0,
+      note: 'contact enrichment only — nothing was emailed',
+      domainsFound,
+      creditsSpent: credited,
+      peopleFound,
+      errors,
+      results,
     });
   }
 
