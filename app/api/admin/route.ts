@@ -267,6 +267,7 @@ export async function GET(request: Request) {
     let credited = 0;
     let peopleFound = 0;
     const results: Array<Record<string, unknown>> = [];
+    const ambiguous: Array<{ company: string; candidates: string[] }> = [];
     const errors: string[] = [];
 
     for (const item of ordered) {
@@ -276,22 +277,45 @@ export async function GET(request: Request) {
       if (alreadyHasPerson) continue;
 
       try {
-        // --- free phase: resolve the company's own domain ---
+        // --- free phase: establish the company's own domain ---
+        // A website already on the row came from a link inside the funding article, so it
+        // has real provenance and always beats a name lookup.
         let domain = existing?.website?.replace(/^https?:\/\//, '') ?? '';
-        let matchedName: string | undefined;
+        let note = existing?.note;
+        let knownEmails = domain ? 1 : 0; // unknown for article-derived domains; assume worth a look
+
         if (!domain) {
           const found = await resolveDomain(item.company);
-          if (!found) continue;
+          if (found.kind === 'none') continue;
+          if (found.kind === 'ambiguous') {
+            // Record the options instead of picking one. Costs nothing and keeps a wrong
+            // company out of the queue.
+            await saveFundingContact(item.id, {
+              id: item.id,
+              founders: existing?.founders ?? [],
+              website: existing?.website,
+              emails: existing?.emails ?? [],
+              socials: existing?.socials ?? [],
+              foundAt: new Date().toISOString(),
+              model: 'hunter.io',
+              note: `domain ambiguous — candidates: ${found.candidates.join(', ')}; pick one by hand`,
+            });
+            ambiguous.push({ company: item.company, candidates: found.candidates });
+            continue;
+          }
           domain = found.domain;
-          matchedName = found.matchedName;
+          knownEmails = found.emailCount;
           domainsFound++;
+          if (found.matchedName.toLowerCase() !== item.company.toLowerCase()) {
+            note = `domain resolved from company name — Hunter matched "${found.matchedName}"; confirm it is the right company`;
+          }
         }
 
         let people = existing?.founders ?? [];
         let emails = existing?.emails ?? [];
 
-        // --- paid phase: only while the caller's credit budget lasts ---
-        if (credited < spendBudget) {
+        // --- paid phase: bounded, and never spent on a domain with nothing to return ---
+        if (credited < spendBudget && knownEmails > 0) {
           credited++;
           const enriched = await findPeopleEmails(domain);
           if (enriched) {
@@ -309,15 +333,14 @@ export async function GET(request: Request) {
           socials: existing?.socials ?? [],
           foundAt: new Date().toISOString(),
           model: 'hunter.io',
-          note: matchedName && matchedName.toLowerCase() !== item.company.toLowerCase()
-            ? `domain resolved from company name — Hunter matched "${matchedName}"; check it is the right company`
-            : existing?.note,
+          note,
         });
 
         results.push({
           id: item.id,
           company: item.company,
           domain,
+          knownEmails,
           founders: people.map((p) => p.name),
           emails: emails.map((e) => e.address),
         });
@@ -334,6 +357,8 @@ export async function GET(request: Request) {
       sent: 0,
       note: 'contact enrichment only — nothing was emailed',
       domainsFound,
+      ambiguousDomains: ambiguous.length,
+      ambiguous,
       creditsSpent: credited,
       peopleFound,
       errors,

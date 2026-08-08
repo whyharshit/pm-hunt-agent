@@ -12,8 +12,9 @@ import type { ContactEmail, ContactPerson } from './types';
  *  - Hunter returns the address WITH first/last name, position, seniority and a
  *    `decision_maker` flag, which is exactly "who is the founder and how do I reach them".
  *
- * 💰 THE CREDIT SPLIT IS THE WHOLE DESIGN. Hunter's free plan is ~25 searches/month, which
- * is nothing against 60+ funding rows. But the two endpoints bill differently:
+ * 💰 THE CREDIT SPLIT IS THE WHOLE DESIGN. Hunter's free plan is 50 searches/month per
+ * ACCOUNT (measured, not the 25 the pricing pages imply), so the user's two keys give 100
+ * — still finite against a queue of ~100 rows. The two endpoints bill differently:
  *
  *   domain-finder  → FREE, no credits. company name → domain.
  *   domain-search  → 1 CREDIT. domain → emails with names/positions.
@@ -22,7 +23,7 @@ import type { ContactEmail, ContactPerson } from './types';
  * News rows are missing — they currently have no website at all), and the credit-spending
  * lookup is bounded per call and never runs automatically over the whole queue.
  *
- * HUNTER_API_KEY unset → every function here returns empty, silently. Same contract as
+ * HUNTER_API_KEYS unset → every function here returns empty, silently. Same contract as
  * SERPER_API_KEY and FIRECRAWL_API_KEY: an unconfigured optional key must not put a daily
  * error on the agent card.
  */
@@ -30,58 +31,148 @@ import type { ContactEmail, ContactPerson } from './types';
 const API = 'https://api.hunter.io/v2';
 const TIMEOUT_MS = 12_000;
 
+/**
+ * Keys are pooled exactly like the Gemini ones, and for the same reason: the free plan is
+ * per ACCOUNT, so two keys on two teams are two quotas. Verified 2026-08-08 — the user's
+ * two keys sit on teams 7289318 and 7289333 with 50 searches each, so the pool is 100
+ * searches/month, not 50. Two keys on ONE team would pool to nothing.
+ */
+export function hunterKeys(): string[] {
+  const raw = [process.env.HUNTER_API_KEYS ?? '', process.env.HUNTER_API_KEY ?? ''].join(',');
+  return [...new Set(raw.split(/[,\s]+/).map((k) => k.trim()).filter(Boolean))];
+}
+
 export function enrichmentConfigured(): boolean {
-  return !!process.env.HUNTER_API_KEY;
+  return hunterKeys().length > 0;
+}
+
+/** Out of credits, or the key is refused — either way, try the next key. */
+function isKeyExhausted(status: number, body: string): boolean {
+  return status === 429 || status === 401 || /usage limit|out of (search|request)|upgrade/i.test(body);
 }
 
 async function hunter<T>(path: string, params: Record<string, string>): Promise<T | null> {
-  const key = process.env.HUNTER_API_KEY;
-  if (!key) return null;
+  const keys = hunterKeys();
+  if (keys.length === 0) return null;
 
-  const qs = new URLSearchParams({ ...params, api_key: key });
-  const res = await fetch(`${API}/${path}?${qs}`, {
-    headers: { accept: 'application/json' },
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
+  let lastError = '';
+  for (const key of keys) {
+    const qs = new URLSearchParams({ ...params, api_key: key });
+    const res = await fetch(`${API}/${path}?${qs}`, {
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
 
-  if (res.status === 404) return null; // nothing found is not an error
-  if (!res.ok) {
+    if (res.status === 404) return null; // nothing found is not an error
+    if (res.ok) return (await res.json()) as T;
+
     const body = await res.text();
-    // Hunter reports "out of credits" as 429 with a specific body; name it, because the
-    // raw status alone reads like a rate limit the caller should retry.
-    throw new Error(`hunter ${path} ${res.status}: ${body.slice(0, 160).replace(/\s+/g, ' ')}`);
+    lastError = `hunter ${path} ${res.status}: ${body.slice(0, 160).replace(/\s+/g, ' ')}`;
+    // A spent or refused key is the next key's problem, not the caller's. Anything else
+    // (a bad domain, a malformed request) fails identically on every key — stop now.
+    if (!isKeyExhausted(res.status, body)) throw new Error(lastError);
   }
-  return (await res.json()) as T;
+
+  throw new Error(`all ${keys.length} Hunter key(s) exhausted — ${lastError}`);
 }
 
-type DomainFinderResponse = {
-  data?: { results?: Array<{ domain?: string; company_name?: string; email_count?: number }> };
-};
+/** Per-key credit balance, straight from Hunter. Free call — never spends a search. */
+export async function hunterBalance(): Promise<
+  Array<{ key: string; plan: string; searchesLeft: number; searchesUsed: number }>
+> {
+  const out = [];
+  for (const key of hunterKeys()) {
+    try {
+      const res = await fetch(`${API}/account?api_key=${key}`, {
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (!res.ok) continue;
+      const d = (await res.json()).data as {
+        plan_name?: string;
+        requests?: { searches?: { used?: number; available?: number } };
+      };
+      out.push({
+        key: `…${key.slice(-6)}`,
+        plan: d.plan_name ?? '?',
+        searchesLeft: (d.requests?.searches?.available ?? 0) - (d.requests?.searches?.used ?? 0),
+        searchesUsed: d.requests?.searches?.used ?? 0,
+      });
+    } catch {
+      // a key that can't report its balance still might work; don't fail the whole check
+    }
+  }
+  return out;
+}
 
 /**
- * Company name → its own domain. FREE (Hunter's domain-finder consumes no credits), so
- * this can run over the whole queue. `perfect_match` is deliberately OFF — startup names
- * in headlines rarely match the registered company name exactly — but the caller still
- * gets `emailCount` to judge whether the match looks real.
+ * ⚠️ `data` is the ARRAY itself — NOT `data.results`. Hunter's published API reference
+ * describes a `results` wrapper for this endpoint and it is wrong; the live response
+ * (checked 2026-08-08) is `{ "data": [ { domain, company_name, logo, email_count } ] }`.
+ * Trusting the docs here silently returned "no match" for every company.
  */
-export async function resolveDomain(
-  company: string
-): Promise<{ domain: string; matchedName: string; emailCount: number } | null> {
-  if (!company || company.trim().length < 3) return null;
+type DomainFinderResponse = {
+  data?: Array<{ domain?: string; company_name?: string; email_count?: number }>;
+};
+
+/** "Consint.AI" and "consint.ai" must compare equal, so strip everything but letters/digits. */
+const flatten = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+export type DomainResolution =
+  | { kind: 'resolved'; domain: string; matchedName: string; emailCount: number }
+  | { kind: 'ambiguous'; candidates: string[] }
+  | { kind: 'none' };
+
+/**
+ * Company name → its own domain. FREE (domain-finder consumes no credits), so this runs
+ * over the whole queue.
+ *
+ * ⚠️ IT REFUSES TO GUESS, and that is the point. Two earlier attempts were wrong in ways
+ * that would have produced real damage (all measured 2026-08-08):
+ *
+ *  - Picking the candidate with the most known emails resolved "Adiabatic Technologies"
+ *    to **infineon.com** (10,107 addresses) — the semiconductor giant, not the startup that
+ *    raised ₹8.3 Cr. That draft would have congratulated Infineon on someone else's seed
+ *    round.
+ *  - Even with `perfect_match=true`, "Hulp" returns hulp.chat / hulp.work / hulp.nl /
+ *    hulp.in and "Vingo" returns five country TLDs. Choosing among those is a coin flip.
+ *
+ * So: accept only when the answer is unambiguous — a single candidate, or exactly one whose
+ * domain matches the company name outright. Otherwise report the candidates and let a human
+ * decide. A guessed domain is upstream of a guessed email address, and this project's
+ * standing rule is that contacts are never guessed.
+ *
+ * `emailCount` also lets the caller skip the paid lookup: a domain Hunter knows 0 addresses
+ * for returns nothing from domain-search, so spending a credit on it is pure waste.
+ */
+export async function resolveDomain(company: string): Promise<DomainResolution> {
+  if (!company || company.trim().length < 3) return { kind: 'none' };
 
   const body = await hunter<DomainFinderResponse>('domain-finder', {
     company: company.trim(),
-    limit: '3',
+    perfect_match: 'true',
+    limit: '5',
   });
 
-  const top = body?.data?.results?.find((r) => r.domain);
-  if (!top?.domain) return null;
+  const candidates = (body?.data ?? []).filter((r) => r.domain);
+  if (candidates.length === 0) return { kind: 'none' };
 
-  return {
-    domain: top.domain,
-    matchedName: top.company_name ?? company,
-    emailCount: top.email_count ?? 0,
-  };
+  const accept = (r: (typeof candidates)[number]) => ({
+    kind: 'resolved' as const,
+    domain: r.domain!,
+    matchedName: r.company_name ?? company,
+    emailCount: r.email_count ?? 0,
+  });
+
+  if (candidates.length === 1) return accept(candidates[0]);
+
+  // "Consint.AI" → consint.ai, and "Smallest.ai" → smallest.ai, both exact once flattened.
+  const target = flatten(company);
+  const exact = candidates.filter(
+    (r) => flatten(r.domain!) === target || flatten(r.domain!.split('.')[0]) === target
+  );
+  if (exact.length === 1) return accept(exact[0]);
+
+  return { kind: 'ambiguous', candidates: candidates.map((r) => `${r.domain} (${r.email_count ?? 0})`) };
 }
 
 type DomainSearchResponse = {
