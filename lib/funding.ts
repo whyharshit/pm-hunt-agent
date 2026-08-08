@@ -1,10 +1,11 @@
 import { Type } from '@google/genai';
 import { FLASH_MODEL, GeminiQuotaError, generateContent } from './gemini';
 import resumeData from '@/profile/resume.json';
-import { fetchFundingNews } from './sources/fundingnews';
+import { fetchFundingNews, isUnresolvableNewsLink } from './sources/fundingnews';
 import { MAX_AGE_DAYS, fetchTechCrunchFundingDetailed, type FundingRaw } from './sources/techcrunch';
 import {
   getFundingSeen,
+  getRecentFunding,
   markFundingSeen,
   recordAgentRun,
   saveFundingItems,
@@ -48,6 +49,20 @@ const extractSchema = {
 };
 
 type Extracted = { company: string; amount: string; round: string; summary: string };
+
+/**
+ * Company names for equality checks only. Strips punctuation, spacing and the legal and
+ * descriptive suffixes outlets vary on, so "Smallest.ai", "Smallest AI" and "Smallest
+ * Technologies" collapse. Deliberately loose: a false merge costs one missed row, a false
+ * split costs a second cold email to a founder who already got one.
+ */
+function normaliseCompany(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\b(inc|llc|ltd|limited|pvt|private|corp|corporation|co|gmbh|bv|sas|plc)\b/g, '')
+    .replace(/\b(technologies|technology|labs|lab|systems|solutions|software|group|holdings)\b/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
 
 async function extractFunding(raws: FundingRaw[]): Promise<Extracted[]> {
   const prompt = [
@@ -178,29 +193,73 @@ export async function runFundingScan(): Promise<FundingScanResult> {
       };
     });
 
-    if (items.length > 0) {
-      await saveFundingItems(items);
-      await markFundingSeen(items.map((i) => i.id));
+    // Dedupe by COMPANY against rows already in the queue, not just by URL.
+    //
+    // Adding Serper broke the old assumption. The same raise is now reported through two
+    // sources with two different URLs — a Google News interstitial and a real publisher
+    // link — so `funding:seen` (keyed on URL) treats the second as brand new. Left alone
+    // that means two rows for one company, two drafts, and eventually two cold emails to
+    // the same founder, which is worse than missing them entirely.
+    //
+    // Runs after extraction because the company name is what Gemini produces; the
+    // fetch-time `storyKey` heuristic can only see headlines.
+    const existingByCompany = new Map<string, FundingItem>();
+    for (const i of await getRecentFunding(200)) {
+      const key = normaliseCompany(i.company);
+      if (key && !existingByCompany.has(key)) existingByCompany.set(key, i);
     }
+
+    const deduped: FundingItem[] = [];
+    const supersededIds: string[] = [];
+    const upgraded: FundingItem[] = [];
+
+    for (const item of items) {
+      const key = normaliseCompany(item.company);
+      const existing = key ? existingByCompany.get(key) : undefined;
+
+      if (existing) {
+        // Same company, already in the queue. Don't add a second row — but if the row we
+        // already have points at a link no server can follow (a Google News interstitial)
+        // and this one is a real publisher URL, swap the URL in. That converts a row stuck
+        // without a founder name into one the contact pipeline can actually read, which is
+        // the whole reason Serper was added. Status and id are preserved, so any draft,
+        // 'skipped' or 'contacted' state on the row survives.
+        if (isUnresolvableNewsLink(existing.url) && !isUnresolvableNewsLink(item.url)) {
+          upgraded.push({ ...existing, url: item.url });
+        }
+        supersededIds.push(item.id);
+        continue;
+      }
+
+      if (key) existingByCompany.set(key, item);
+      deduped.push(item);
+    }
+
+    if (deduped.length > 0) await saveFundingItems(deduped);
+    if (upgraded.length > 0) await saveFundingItems(upgraded);
+    const toMark = [...deduped.map((i) => i.id), ...supersededIds];
+    if (toMark.length > 0) await markFundingSeen(toMark);
 
     await recordAgentRun('funding', {
       state: 'ok',
       summary:
         `${stats.fetched} posts → ${stats.afterRaiseGate} raises → ${stats.afterAgeGate} fresh · ` +
-        `${items.length} new${usedFallback ? ' (raw — Gemini fallback)' : ''}` +
+        `${deduped.length} new${supersededIds.length ? ` · ${supersededIds.length} dup company` : ''}${upgraded.length ? ` · ${upgraded.length} link upgraded` : ''}${usedFallback ? ' (raw — Gemini fallback)' : ''}` +
         (stats.errors.length ? ` · feed errors: ${stats.errors.length}` : ''),
       stats: {
         fetched: stats.fetched,
         raises: stats.afterRaiseGate,
         fresh: stats.afterAgeGate,
-        new: items.length,
+        new: deduped.length,
+        dupCompany: supersededIds.length,
+        urlUpgraded: upgraded.length,
       },
       error: null,
     });
 
     return {
       fetched: raws.length,
-      newCount: items.length,
+      newCount: deduped.length,
       usedFallback,
       afterRaiseGate: stats.afterRaiseGate,
       afterAgeGate: stats.afterAgeGate,

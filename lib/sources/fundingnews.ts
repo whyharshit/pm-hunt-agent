@@ -23,7 +23,7 @@ import { isStartupRaise, type FundingRaw } from './techcrunch';
  */
 
 const GOOGLE_NEWS = 'https://news.google.com/rss/search';
-const SERPER_ENDPOINT = 'https://google.serper.dev/search';
+const SERPER_ENDPOINT = 'https://google.serper.dev/news';
 const TIMEOUT_MS = 12_000;
 
 const UA =
@@ -41,10 +41,21 @@ const NEWS_QUERIES = [
   'startup raises seed round when:7d',
 ];
 
+/**
+ * ⚠️ PLAIN KEYWORDS ONLY. Serper's free tier rejects search operators with
+ * `400 "Query pattern not allowed for free accounts"` — quoted phrases and `OR` both
+ * trip it (measured 2026-08-08: `"raises" "series A" startup funding announcement` was
+ * refused while the same words unquoted worked). Every query below was verified live to
+ * return 10 results with 100% direct publisher URLs.
+ *
+ * 💰 One credit per query = 5/run ≈ 150/month against the free tier's ~2,500.
+ */
 const SERPER_QUERIES = [
-  'startup raises seed funding round',
-  'Indian startup raises pre-seed OR seed funding',
-  '"raises" "series A" startup funding announcement',
+  'startup raises seed funding',
+  'Indian startup raises funding round',
+  'startup raises series A funding',
+  'startup raises pre-seed funding India',
+  'startup secures seed round India',
 ];
 
 /** Google News appends " - Publisher" to every headline; the raise gate keys on the title. */
@@ -110,9 +121,44 @@ export function storyKey(title: string): string {
   return name.replace(/[^\p{L}\p{N}]/gu, '');
 }
 
-/** A Google News interstitial link — real article URL not recoverable server-side. */
+/**
+ * A link no server can follow to the article: Google News RSS interstitials, and the
+ * `google.com/goto?url=<opaque blob>` wrappers Serper sometimes returns instead of the
+ * publisher URL (seen live 2026-08-08 — same query, some results direct, some wrapped).
+ * Both render only in a browser, so the contact pipeline must skip them rather than scrape
+ * a redirect shell.
+ */
 export function isUnresolvableNewsLink(url: string): boolean {
-  return /(^|\/\/)news\.google\.com\//i.test(url);
+  return /(^|\/\/)news\.google\.com\//i.test(url) || /google\.com\/goto\?/i.test(url);
+}
+
+/** Aggregate weekly/daily round-ups name no single company, so Gemini would invent one. */
+function isRoundup(title: string): boolean {
+  return /\b\d+\s+(indian\s+)?startups\b|\bstartups\s+(raised|raise)\b|\bweekly\s+funding\b|\bfunding\s+round-?up\b|\b(daily|weekly)\s+round-?up\b|\b(deals?|funding|startup)\s+digest\b|^digest\b|\bthis\s+week\b|\bfunding\s+(drops?|falls?|rises?)\b/i.test(
+    title
+  );
+}
+
+/**
+ * Serper's news results date as "3 days ago" / "1 hour ago", which `Date.parse` cannot
+ * read. Converting it matters: the age gate is a hard gate, and stamping everything as
+ * "now" would let a month-old article pass as fresh.
+ */
+function parseRelativeDate(rel: string | undefined): string {
+  if (!rel) return new Date().toISOString();
+  const m = rel.match(/(\d+)\s*(minute|hour|day|week|month|year)s?\s+ago/i);
+  if (!m) return new Date().toISOString();
+  const n = Number(m[1]);
+  const unit = m[2].toLowerCase();
+  const ms: Record<string, number> = {
+    minute: 60_000,
+    hour: 3_600_000,
+    day: 86_400_000,
+    week: 604_800_000,
+    month: 2_592_000_000,
+    year: 31_536_000_000,
+  };
+  return new Date(Date.now() - n * (ms[unit] ?? 0)).toISOString();
 }
 
 async function fetchNewsQuery(q: string): Promise<FundingRaw[]> {
@@ -158,6 +204,14 @@ async function fetchNewsQuery(q: string): Promise<FundingRaw[]> {
   return out;
 }
 
+/**
+ * Serper's NEWS endpoint, not /search. Measured 2026-08-08: `/search` for these queries
+ * returned one organic result and it was an SEO directory page, while `/news` returned ten
+ * real funding announcements per query with **direct publisher URLs** — entrackr.com,
+ * economictimes, inc42, businesswire. Those URLs are the entire point of paying Serper any
+ * attention: they are scrapeable, so the existing contact pipeline can read the article and
+ * name the founder, which the Google News rows can never do.
+ */
 async function fetchSerperQuery(q: string, key: string): Promise<FundingRaw[]> {
   const res = await fetch(SERPER_ENDPOINT, {
     method: 'POST',
@@ -170,21 +224,21 @@ async function fetchSerperQuery(q: string, key: string): Promise<FundingRaw[]> {
   if (!res.ok) throw new Error(`serper ${res.status}: ${(await res.text()).slice(0, 120)}`);
 
   const body = (await res.json()) as {
-    organic?: Array<{ title?: string; link?: string; snippet?: string; date?: string }>;
+    news?: Array<{ title?: string; link?: string; snippet?: string; date?: string; source?: string }>;
   };
 
   const out: FundingRaw[] = [];
-  for (const r of body.organic ?? []) {
+  for (const r of body.news ?? []) {
     if (!r.link || !r.title) continue;
     if (isUnresolvableNewsLink(r.link)) continue;
+    const title = decode(r.title);
+    if (isRoundup(title)) continue;
     out.push({
       sourceId: urlId(r.link),
-      title: decode(r.title),
-      summary: decode(r.snippet ?? r.title),
+      title,
+      summary: decode(r.snippet ?? title),
       url: r.link,
-      // Serper's `date` is relative ("2 days ago") and unparseable; the qdr:w window
-      // already bounds these to the past week, so stamp them as now rather than guess.
-      postedAt: new Date().toISOString(),
+      postedAt: parseRelativeDate(r.date),
     });
   }
   return out;
