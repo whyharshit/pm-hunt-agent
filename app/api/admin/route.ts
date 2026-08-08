@@ -1,6 +1,6 @@
 import { findContact, isGenericEmail } from '@/lib/contact';
 import { enrichmentConfigured, findPeopleEmails, resolveDomain } from '@/lib/enrich';
-import { renderOutreachTemplate } from '@/lib/outreach-template';
+import { firstName, renderOutreachTemplate } from '@/lib/outreach-template';
 import { isUnresolvableNewsLink } from '@/lib/sources/fundingnews';
 import { draftOutreach } from '@/lib/funding';
 import { MAX_AGE_DAYS } from '@/lib/sources/techcrunch';
@@ -509,7 +509,7 @@ export async function GET(request: Request) {
     const ids = items.map((i) => i.id);
     const [contacts, drafts] = await Promise.all([getFundingContacts(ids), getFundingOutreaches(ids)]);
 
-    const written: Array<{ company: string; to: string }> = [];
+    const written: Array<{ company: string; greeting: string }> = [];
     let skippedNoFounder = 0;
     let skippedSent = 0;
 
@@ -527,7 +527,10 @@ export async function GET(request: Request) {
       await saveFundingOutreach(item.id, outreach);
       written.push({
         company: item.company,
-        to: contacts.get(item.id)!.founders[0].name,
+        // The same helper the email uses, so the report can't disagree with what was sent.
+        // Reporting the raw name here showed "Hi Dr." for a row whose email correctly
+        // opened "Hi Chinmay,".
+        greeting: `Hi ${firstName(contacts.get(item.id)!.founders[0].name)}`,
       });
     }
 
