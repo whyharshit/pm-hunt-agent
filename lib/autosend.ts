@@ -55,6 +55,24 @@ function trustedProvenance(e: ContactEmail): boolean {
   return /hunter\.io|added by hand/i.test(e.foundOn);
 }
 
+/**
+ * A domain that a web search guessed is NOT safe to mail unattended.
+ *
+ * Caught by a dry run 2026-08-09, one cron away from going out: the row was "Amigo", a
+ * Kolkata startup that raised ₹4.5 Cr pre-seed (founders Anshuk Sengupta, Saswata C.).
+ * Search resolved "Amigo" to amigo.ai — a different American company entirely — Hunter
+ * happily returned its staff, and the sender was about to greet "Hi Ali" and congratulate
+ * a stranger on someone else's round.
+ *
+ * Common-word company names (Amigo, Scape, Moove, River) match many domains, and the
+ * name-relates-to-domain test cannot tell them apart. So search-resolved rows stay visible
+ * on the dashboard for a human to confirm, and are excluded from unattended sending. A
+ * domain Hunter resolved itself, or a contact added by hand, is unaffected.
+ */
+function domainUnverified(contact: FundingContact): boolean {
+  return /found by web search/i.test(contact.note ?? '');
+}
+
 export function autoSendCap(): number {
   const raw = process.env.AUTO_SEND_MAX_PER_DAY;
   if (raw === undefined || raw.trim() === '') return 3;
@@ -93,6 +111,7 @@ export async function autoSendCandidates(): Promise<AutoSendCandidate[]> {
 
     const contact = contacts.get(item.id);
     if (!contact) continue;
+    if (domainUnverified(contact)) continue;
 
     const usable = contact.emails.filter(
       (e) =>
@@ -132,7 +151,24 @@ export async function autoSendCandidates(): Promise<AutoSendCandidate[]> {
   }
 
   // Freshest raise first: if the cap bites, it should bite on the least timely row.
-  return out.sort((a, b) => Date.parse(b.item.postedAt) - Date.parse(a.item.postedAt));
+  out.sort((a, b) => Date.parse(b.item.postedAt) - Date.parse(a.item.postedAt));
+
+  // Never twice to the same person or the same company in one run. Duplicate rows for one
+  // raise do survive into the queue — a dry run on 2026-08-09 had Hadrian listed twice,
+  // which would have sent tom.leach@hadrian.co the identical email twice in one morning,
+  // the single most spam-like thing this could do. The company-level scan dedupe runs at
+  // fetch time and cannot catch rows that were already stored separately, so the guard
+  // belongs here too, at the last point before sending.
+  const seenAddress = new Set<string>();
+  const seenCompany = new Set<string>();
+  return out.filter((c) => {
+    const address = c.to.toLowerCase();
+    const company = c.item.company.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (seenAddress.has(address) || seenCompany.has(company)) return false;
+    seenAddress.add(address);
+    seenCompany.add(company);
+    return true;
+  });
 }
 
 export type AutoSendResult = {
