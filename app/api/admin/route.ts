@@ -16,6 +16,9 @@ import {
 } from '@/lib/storage';
 
 export const dynamic = 'force-dynamic';
+// `prepare-outreach` fetches an article, crawls up to 4 pages of the company's site and
+// makes 2 Gemini calls per row. The read-only actions return in well under a second.
+export const maxDuration = 300;
 
 /**
  * Guarded data-hygiene endpoint (Bearer CRON_SECRET, same contract as the other routes).
