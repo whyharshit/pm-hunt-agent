@@ -2,6 +2,10 @@
 
 import { revalidatePath } from 'next/cache';
 import {
+  deleteFundingItem,
+  deleteJob,
+  deleteTracked,
+  deleteWhatsappLead,
   getFundingContact,
   getFundingItem,
   getFundingOutreach,
@@ -175,6 +179,43 @@ export async function resetFundingDraft(formData: FormData): Promise<void> {
   if (!item) return;
   const outreach = renderOutreachTemplate(item, contact);
   if (outreach) await saveFundingOutreach(id, outreach);
+  revalidatePath('/');
+}
+
+/**
+ * Row deletion, one action per list. Deliberately separate from the status dropdowns:
+ * `skipped` keeps a row visible as a decision, deleting removes it and its artifacts.
+ *
+ * There is no undo, so each button carries a native confirm in the UI. A deleted funding or
+ * discovered row also stays in its `seen` set, otherwise the next scan would resurrect it.
+ */
+export async function deleteTrackedRow(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  if (typeof id !== 'string') return;
+  await deleteTracked(id);
+  revalidatePath('/');
+}
+
+export async function deleteFundingRow(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  if (typeof id !== 'string') return;
+  await deleteFundingItem(id);
+  revalidatePath('/funding');
+  revalidatePath('/');
+}
+
+export async function deleteWhatsappLeadRow(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  if (typeof id !== 'string') return;
+  await deleteWhatsappLead(id);
+  revalidatePath('/');
+}
+
+export async function deleteJobRow(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  if (typeof id !== 'string') return;
+  await deleteJob(id);
+  revalidatePath('/jobs');
   revalidatePath('/');
 }
 

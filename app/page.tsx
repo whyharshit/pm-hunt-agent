@@ -13,7 +13,8 @@ import {
 import type { TrackedArtifacts } from '@/lib/storage';
 import { TIER_EMOJI } from '@/lib/classify';
 import { LIVE_AGENT_IDS } from '@/lib/agents';
-import { setTrackedStatus, tailorTracked } from '@/lib/actions';
+import { deleteTrackedRow, setTrackedStatus, tailorTracked } from '@/lib/actions';
+import { DeleteButton } from './delete-button';
 import { fmtDate, hostOf } from '@/lib/format';
 import { answersFilled } from '@/lib/gform';
 import { buildFormFillPrompt } from '@/lib/form-prompt';
@@ -190,6 +191,11 @@ export default async function Home() {
                     >
                       {t.status}
                     </span>
+                    <DeleteButton
+                      id={t.id}
+                      action={deleteTrackedRow}
+                      what={`“${t.role || hostOf(t.url)}”`}
+                    />
                     <form action={setTrackedStatus} className="flex items-center gap-2">
                       <input type="hidden" name="id" value={t.id} />
                       <select

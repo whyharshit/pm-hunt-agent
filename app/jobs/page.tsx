@@ -1,5 +1,7 @@
 import { getRecentJobs } from '@/lib/storage';
+import { deleteJobRow } from '@/lib/actions';
 import { fmtDate } from '@/lib/format';
+import { DeleteButton } from '../delete-button';
 import { Nav } from '../nav';
 import type { Job } from '@/lib/types';
 
@@ -93,9 +95,12 @@ export default async function JobsPage({
                 >
                   {j.title}
                 </a>
-                <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                  {j.company} · {j.location || 'remote'} · <span className="italic">{j.source}</span>
-                  {j.salary ? ` · ${j.salary}` : ''} · {fmtDate(j.postedAt)}
+                <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                  <span>
+                    {j.company} · {j.location || 'remote'} · <span className="italic">{j.source}</span>
+                    {j.salary ? ` · ${j.salary}` : ''} · {fmtDate(j.postedAt)}
+                  </span>
+                  <DeleteButton id={j.id} action={deleteJobRow} what={`“${j.title}”`} />
                 </div>
               </li>
             ))}

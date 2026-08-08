@@ -7,7 +7,9 @@ import {
   setFundingStatus,
   updateFundingDraft,
 } from '@/lib/actions';
+import { deleteFundingRow } from '@/lib/actions';
 import { addressLooksLikePerson, isGenericEmail } from '@/lib/contact';
+import { DeleteButton } from './delete-button';
 import { isEditedDraft } from '@/lib/outreach-template';
 import { fmtDate, hostOf } from '@/lib/format';
 import { CopyButton } from './copy-button';
@@ -347,7 +349,10 @@ export function FundingSection({
                   <SendRow item={it} draft={draft} contact={contact} mailerReady={mailerReady} />
                 )}
 
-                <AddContactRow item={it} />
+                <div className="flex flex-wrap items-center gap-2">
+                  <AddContactRow item={it} />
+                  <DeleteButton id={it.id} action={deleteFundingRow} what={`the ${it.company} row`} />
+                </div>
               </li>
             );
           })}

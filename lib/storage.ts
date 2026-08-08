@@ -380,6 +380,20 @@ export async function deleteTracked(id: string): Promise<void> {
   await pipe.exec();
 }
 
+/**
+ * Remove a funding row and everything derived from it. The id stays in `funding:seen` on
+ * purpose — the same article is still in the feeds, and without that marker the next scan
+ * would resurrect a row the user deliberately deleted.
+ */
+export async function deleteFundingItem(id: string): Promise<void> {
+  const pipe = redis().pipeline();
+  pipe.del(fundingKey(id));
+  pipe.zrem(FUNDING_INDEX, id);
+  pipe.del(fundingOutreachKey(id));
+  pipe.del(fundingContactKey(id));
+  await pipe.exec();
+}
+
 export async function deleteWhatsappLead(id: string): Promise<void> {
   const pipe = redis().pipeline();
   pipe.del(waLeadKey(id));

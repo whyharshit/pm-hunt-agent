@@ -1,4 +1,5 @@
-import { setWhatsappLeadStatus } from '@/lib/actions';
+import { deleteWhatsappLeadRow, setWhatsappLeadStatus } from '@/lib/actions';
+import { DeleteButton } from './delete-button';
 import { fmtDate } from '@/lib/format';
 import { CopyButton } from './copy-button';
 import type { WhatsappLead } from '@/lib/types';
@@ -46,6 +47,11 @@ export function WhatsappSection({ leads }: { leads: WhatsappLead[] }) {
               >
                 {l.status}
               </span>
+              <DeleteButton
+                id={l.id}
+                action={deleteWhatsappLeadRow}
+                what={`the lead from ${l.sender || l.group || 'WhatsApp'}`}
+              />
               <form action={setWhatsappLeadStatus} className="flex items-center gap-2">
                 <input type="hidden" name="id" value={l.id} />
                 <select

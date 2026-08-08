@@ -1,3 +1,4 @@
+import { runAutoSend } from '@/lib/autosend';
 import { runFundingScan } from '@/lib/funding';
 import { fetchFundingNews } from '@/lib/sources/fundingnews';
 import { fetchTechCrunchFundingDetailed } from '@/lib/sources/techcrunch';
@@ -27,8 +28,23 @@ async function handle(request: Request) {
     return Response.json({ debug: true, techcrunch: tc, news });
   }
 
+  // Auto-send is OPT-IN per request, never implied by hitting this route.
+  //
+  // Vercel Hobby caps at 2 crons and both are taken, so morning outreach rides along with
+  // the funding scan rather than getting its own schedule. That makes this route the thing
+  // that sends real email to real founders, and any manual call to it during debugging
+  // would otherwise do so silently. `?autosend=true` lives in vercel.json's cron path and
+  // nowhere else; `?autosend=dry` reports what would go out and sends nothing.
+  const autosend = url.searchParams.get('autosend');
+
   try {
     const result = await runFundingScan();
+
+    if (autosend === 'true' || autosend === 'dry') {
+      const send = await runAutoSend({ dryRun: autosend === 'dry' });
+      return Response.json({ ok: true, ...result, autosend: send });
+    }
+
     return Response.json({ ok: true, ...result });
   } catch (e) {
     return Response.json({ ok: false, error: (e as Error).message }, { status: 500 });
