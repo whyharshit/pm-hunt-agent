@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import {
   getAgentRuns,
   getFundingContacts,
@@ -13,11 +14,10 @@ import type { TrackedArtifacts } from '@/lib/storage';
 import { TIER_EMOJI } from '@/lib/classify';
 import { LIVE_AGENT_IDS } from '@/lib/agents';
 import { setTrackedStatus, tailorTracked } from '@/lib/actions';
-import { mailerConfigured } from '@/lib/mailer';
 import { fmtDate, hostOf } from '@/lib/format';
 import { answersFilled } from '@/lib/gform';
 import { AgentsPanel } from './agents-panel';
-import { FundingSection } from './funding-section';
+import { Nav } from './nav';
 import { WhatsappSection } from './whatsapp-section';
 import { AddUrlForm } from './add-url-form';
 import { GformRow } from './gform-row';
@@ -110,6 +110,19 @@ export default async function Home() {
   } = await loadData();
   const answersReady = answersFilled();
 
+  // Summary figures for the two cards that replaced the inlined sections.
+  const readyToSend = funding.filter(
+    (f) =>
+      f.status === 'new' &&
+      fundingOutreach.get(f.id) &&
+      !fundingOutreach.get(f.id)!.sentAt &&
+      (fundingContacts.get(f.id)?.emails.length ?? 0) > 0
+  ).length;
+  const sentCount = funding.filter((f) => fundingOutreach.get(f.id)?.sentAt).length;
+  const jobSourceCounts = new Map<string, number>();
+  for (const j of jobs) jobSourceCounts.set(j.source, (jobSourceCounts.get(j.source) ?? 0) + 1);
+  const topSources = [...jobSourceCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
+
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-black text-zinc-900 dark:text-zinc-100 font-sans">
       <main className="mx-auto max-w-5xl px-6 py-10 sm:py-14">
@@ -124,6 +137,8 @@ export default async function Home() {
             {tracked.length} tracked · {jobs.length} discovered
           </div>
         </header>
+
+        <Nav current="home" />
 
         {error && (
           <div className="mb-8 rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
@@ -245,41 +260,31 @@ export default async function Home() {
 
         <WhatsappSection leads={waLeads} />
 
-        <FundingSection
-          items={funding}
-          outreach={fundingOutreach}
-          contacts={fundingContacts}
-          mailerReady={mailerConfigured()}
-        />
-
-        <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-            Discovered Jobs · {jobs.length}
-          </h2>
-          {jobs.length === 0 ? (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              No jobs saved yet. The daily cron will populate this once a match clears the filters.
-            </p>
-          ) : (
-            <ul className="divide-y divide-zinc-200 dark:divide-zinc-800 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
-              {jobs.map((j) => (
-                <li key={j.id} className="px-4 py-3">
-                  <a
-                    href={j.url}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="block text-sm font-medium text-zinc-900 hover:underline dark:text-zinc-100"
-                  >
-                    {j.title}
-                  </a>
-                  <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                    {j.company} · {j.location || 'remote'} · <span className="italic">{j.source}</span>
-                    {j.salary ? ` · ${j.salary}` : ''} · {fmtDate(j.postedAt)}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+        {/* Funding and jobs moved to their own routes: together they were ~250 rows, so
+            everything below them was unreachable without a long scroll. Summaries link out. */}
+        <section className="grid gap-3 sm:grid-cols-2">
+          <Link
+            href="/funding"
+            className="rounded-lg border border-zinc-200 bg-white px-4 py-3 hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600"
+          >
+            <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              Funding · cold outreach → {funding.length}
+            </div>
+            <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+              {readyToSend} ready to send · {sentCount} sent
+            </div>
+          </Link>
+          <Link
+            href="/jobs"
+            className="rounded-lg border border-zinc-200 bg-white px-4 py-3 hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600"
+          >
+            <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              Discovered jobs → {jobs.length}
+            </div>
+            <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+              {topSources.map(([s, n]) => `${s} ${n}`).join(' · ') || 'nothing yet'}
+            </div>
+          </Link>
         </section>
       </main>
     </div>

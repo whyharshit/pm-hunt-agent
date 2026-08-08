@@ -15,6 +15,10 @@ export function GformRow({
   prefill: GformPrefill | undefined;
   answersReady: boolean;
 }) {
+  // The one condition the pre-filler can never overcome; matched on the message fetchForm
+  // writes so the UI and lib/gform.ts cannot drift apart on wording.
+  const signInRestricted = /requires Google sign-in/i.test(tracked.tailorError ?? '');
+
   return (
     <div className="flex flex-col gap-2 sm:pl-9">
       <div className="flex flex-wrap items-center gap-2">
@@ -43,12 +47,35 @@ export function GformRow({
             {prefill.filled.length}/{prefill.fieldCount} filled
           </span>
         )}
-        {tracked.tailorError && (
+        {/* A sign-in-restricted form is not a failure, it is a property of the form: Google
+            401s the view itself, so no server anywhere can read its fields. Rendering that
+            as a red ⚠ next to working rows made the whole section look broken. It gets an
+            informational note plus the only action that helps — open it signed in. */}
+        {tracked.tailorError && !signInRestricted && (
           <span className="text-xs text-red-600 dark:text-red-400" title={tracked.tailorError}>
             ⚠ {tracked.tailorError}
           </span>
         )}
       </div>
+
+      {signInRestricted && (
+        <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          <div className="font-medium">This form is restricted to signed-in Google accounts.</div>
+          <div className="mt-0.5">
+            Google refuses to serve the questions to anyone who isn’t logged in, so no
+            pre-filled link can be built for it — by anyone, not just this agent. Open it in
+            your signed-in browser and paste your saved answers.
+          </div>
+          <a
+            href={tracked.url}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="mt-1.5 inline-flex h-6 items-center rounded border border-amber-400 bg-white px-2 font-semibold text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-900 dark:text-amber-100"
+          >
+            Open form signed in ↗
+          </a>
+        </div>
+      )}
 
       {!answersReady && (
         <p className="text-[11px] text-amber-700 dark:text-amber-400">
