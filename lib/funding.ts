@@ -142,19 +142,20 @@ export async function runFundingScan(): Promise<FundingScanResult> {
 
 // ---- Per-company cold outreach draft ----
 
-const OUTREACH_SYSTEM = `You write a short cold first-touch outreach message from a candidate to the FOUNDER of a startup that just raised funding.
+const OUTREACH_SYSTEM = `You write a short cold first-touch outreach message from a student/early-career candidate to the FOUNDER of a startup that just raised funding. The candidate is asking for an INTERNSHIP — not a full-time job.
 
 HARD RULES:
 1. Output ≤ ${MAX_OUTREACH} characters total (count every char).
-2. Infer the single best-fit early-stage role to pitch FOR THIS company from its funding/business context — e.g. founder's office / chief of staff / generalist for a fresh seed raise, ops for a logistics raise, product for a clear SaaS product. Pick one; don't hedge.
-3. Open by referencing the raise specifically (amount/round/what they do) — not "congrats on your funding" generically.
-4. Pair it with ONE concrete credential from the candidate's resume (a real company, a quantified outcome, or a tool they shipped). Never invent.
-5. End with a low-friction ask ("worth a quick chat?", "open to a 15-min intro?").
-6. Plain text only — no markdown, no emojis, no "Dear", no letter formatting.
-7. If a RECIPIENT is named, open with a bare first-name greeting ("Hi Maya —") before the raise reference. If no recipient is named, use no greeting at all.
-8. Also write "subject": an email subject line, ≤ 60 chars, concrete and specific to this company. No clickbait, no "Job application", no exclamation marks.
+2. The ask is explicitly an INTERNSHIP. The word "intern" or "internship" must appear, describing what the candidate wants NOW — never only as a description of past experience. Do not pitch the candidate as a full-time hire.
+3. Infer the single best-fit early-stage internship to ask for AT THIS company from its funding/business context — e.g. founder's office / chief-of-staff intern for a fresh seed raise, ops intern for a logistics raise, product intern for a clear SaaS product. Pick one; don't hedge.
+4. Open by congratulating them on the raise SPECIFICALLY — name the amount/round/what they do. Never a generic "congrats on your funding".
+5. Pair it with ONE concrete credential from the candidate's resume (a real company, a quantified outcome, or a tool they shipped). Never invent.
+6. End with a low-friction ask ("worth a quick chat?", "open to a 15-min intro?").
+7. Plain text only — no markdown, no emojis, no "Dear", no letter formatting.
+8. If a RECIPIENT is named, open with a bare first-name greeting ("Hi Maya —") before the congratulation. If no recipient is named, use no greeting at all.
+9. Also write "subject": an email subject line, ≤ 60 chars, concrete and specific to this company. No clickbait, no "Job application", no exclamation marks.
 
-Also output the role angle you chose in the "angle" field.`;
+Also output the internship angle you chose in the "angle" field.`;
 
 const outreachSchema = {
   type: Type.OBJECT,
@@ -201,23 +202,40 @@ export async function draftOutreach(
     .filter((s) => s !== null)
     .join('\n');
 
-  const response = await ai.models.generateContent({
-    model: MODEL,
-    contents: prompt,
-    config: {
-      systemInstruction: OUTREACH_SYSTEM,
-      responseMimeType: 'application/json',
-      responseSchema: outreachSchema,
-      temperature: 0.7,
-    },
-  });
+  // Gemini cannot reliably count its own characters, so it overshoots the cap every few
+  // drafts. Throwing on the first overflow loses the whole row mid-session; telling it the
+  // exact miss and asking again recovers it. Only a persistent overflow is a real failure.
+  let parsed: { text: string; angle: string; subject?: string } | null = null;
+  let overflow = 0;
 
-  const text = response.text;
-  if (!text) throw new Error('Gemini returned empty response');
-  const parsed = JSON.parse(text) as { text?: string; angle?: string; subject?: string };
-  if (!parsed.text || !parsed.angle) throw new Error('Gemini response missing text/angle');
-  if (parsed.text.length > MAX_OUTREACH) {
-    throw new Error(`outreach too long: ${parsed.text.length} > ${MAX_OUTREACH}`);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await ai.models.generateContent({
+      model: MODEL,
+      contents: overflow
+        ? `${prompt}\n\nYour previous attempt was ${overflow} characters — ${overflow - MAX_OUTREACH} too many. Rewrite it under ${MAX_OUTREACH} characters, keeping the congratulation, the credential and the internship ask.`
+        : prompt,
+      config: {
+        systemInstruction: OUTREACH_SYSTEM,
+        responseMimeType: 'application/json',
+        responseSchema: outreachSchema,
+        temperature: 0.7,
+      },
+    });
+
+    const text = response.text;
+    if (!text) throw new Error('Gemini returned empty response');
+    const candidate = JSON.parse(text) as { text?: string; angle?: string; subject?: string };
+    if (!candidate.text || !candidate.angle) throw new Error('Gemini response missing text/angle');
+
+    if (candidate.text.length <= MAX_OUTREACH) {
+      parsed = { text: candidate.text, angle: candidate.angle, subject: candidate.subject };
+      break;
+    }
+    overflow = candidate.text.length;
+  }
+
+  if (!parsed) {
+    throw new Error(`outreach too long after retry: ${overflow} > ${MAX_OUTREACH}`);
   }
 
   return {

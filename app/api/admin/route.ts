@@ -2,6 +2,9 @@ import {
   deleteJob,
   deleteTracked,
   deleteWhatsappLead,
+  getFundingContacts,
+  getFundingOutreaches,
+  getRecentFunding,
   getRecentJobs,
   getRecentTracked,
   getRecentWhatsappLeads,
@@ -18,6 +21,12 @@ export const dynamic = 'force-dynamic';
  *                         like test data. Read-only; run this FIRST and eyeball it.
  *   ?action=purge-test  — delete ONLY the flagged rows (tracker rows drop their scraped
  *                         JD / tailored resume / PDF / blurb / gform artifacts with them).
+ *   ?action=funding     — read-only view of the founder-outreach queue: every funding row
+ *                         with its status, whether a draft and a contact lookup exist, the
+ *                         harvested addresses, and whether a real email has already gone
+ *                         out (`sentAt`). Answers "what is there to send today" without
+ *                         loading the dashboard. Sends NOTHING — sending stays a human
+ *                         click on the dashboard.
  *
  * The markers are deliberately narrow: the smoke rows planted by the 2026-08-02 WhatsApp
  * ingest test ("SMOKE TEST — delete me", forms.gle/internAgentSmokeTest,
@@ -47,6 +56,62 @@ export async function GET(request: Request) {
   }
 
   const action = new URL(request.url).searchParams.get('action');
+
+  // Answered before the tracker/jobs reads below, which this action has no use for.
+  if (action === 'funding') {
+    const items = await getRecentFunding(200);
+    const ids = items.map((i) => i.id);
+    const [outreaches, contacts] = await Promise.all([
+      getFundingOutreaches(ids),
+      getFundingContacts(ids),
+    ]);
+
+    const rows = items.map((i) => {
+      const draft = outreaches.get(i.id);
+      const contact = contacts.get(i.id);
+      return {
+        id: i.id,
+        company: i.company,
+        amount: i.amount ?? null,
+        round: i.round ?? null,
+        status: i.status,
+        postedAt: i.postedAt,
+        url: i.url,
+        draft: draft
+          ? { angle: draft.angle, subject: draft.subject ?? null, text: draft.text, sentAt: draft.sentAt ?? null, sentTo: draft.sentTo ?? null }
+          : null,
+        contact: contact
+          ? {
+              founders: contact.founders,
+              website: contact.website ?? null,
+              emails: contact.emails.map((e) => e.address),
+              note: contact.note ?? null,
+            }
+          : null,
+      };
+    });
+
+    // "Ready to send" is the number that decides whether an outreach session is worth
+    // running: a draft exists, an address was harvested, and nothing has gone out yet.
+    const readyToSend = rows.filter(
+      (r) => r.status === 'new' && r.draft && !r.draft.sentAt && (r.contact?.emails.length ?? 0) > 0
+    );
+
+    return Response.json({
+      rows,
+      counts: {
+        total: rows.length,
+        new: rows.filter((r) => r.status === 'new').length,
+        contacted: rows.filter((r) => r.status === 'contacted').length,
+        skipped: rows.filter((r) => r.status === 'skipped').length,
+        drafted: rows.filter((r) => r.draft).length,
+        withEmail: rows.filter((r) => (r.contact?.emails.length ?? 0) > 0).length,
+        sent: rows.filter((r) => r.draft?.sentAt).length,
+        readyToSend: readyToSend.length,
+      },
+      readyToSend: readyToSend.map((r) => ({ id: r.id, company: r.company, emails: r.contact!.emails })),
+    });
+  }
 
   const [tracked, leads, jobs] = await Promise.all([
     getRecentTracked(500),
