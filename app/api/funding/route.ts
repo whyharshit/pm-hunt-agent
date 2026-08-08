@@ -28,21 +28,26 @@ async function handle(request: Request) {
     return Response.json({ debug: true, techcrunch: tc, news });
   }
 
-  // Auto-send is OPT-IN per request, never implied by hitting this route.
-  //
   // Vercel Hobby caps at 2 crons and both are taken, so morning outreach rides along with
-  // the funding scan rather than getting its own schedule. That makes this route the thing
-  // that sends real email to real founders, and any manual call to it during debugging
-  // would otherwise do so silently. `?autosend=true` lives in vercel.json's cron path and
-  // nowhere else; `?autosend=dry` reports what would go out and sends nothing.
+  // the funding scan rather than getting its own schedule. That makes this route the one
+  // that mails real founders, so it must send on the SCHEDULE and never merely because
+  // someone curled it while debugging.
+  //
+  // The trigger is Vercel's documented cron user-agent, not a query string: the docs
+  // guarantee `vercel-cron/1.0` on scheduled invocations but say nothing about query
+  // strings surviving in a cron `path`, and betting on that would fail silently — the
+  // schedule would run, never send, and look configured. `?autosend=true` forces a send
+  // manually; `?autosend=dry` reports what would go out and sends nothing.
   const autosend = url.searchParams.get('autosend');
+  const isVercelCron = /vercel-cron/i.test(request.headers.get('user-agent') ?? '');
+  const shouldSend = autosend === 'true' || (isVercelCron && autosend !== 'off');
 
   try {
     const result = await runFundingScan();
 
-    if (autosend === 'true' || autosend === 'dry') {
+    if (shouldSend || autosend === 'dry') {
       const send = await runAutoSend({ dryRun: autosend === 'dry' });
-      return Response.json({ ok: true, ...result, autosend: send });
+      return Response.json({ ok: true, ...result, autosend: send, triggeredByCron: isVercelCron });
     }
 
     return Response.json({ ok: true, ...result });
