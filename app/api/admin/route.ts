@@ -1,4 +1,4 @@
-import { findContact } from '@/lib/contact';
+import { findContact, isGenericEmail } from '@/lib/contact';
 import { draftOutreach } from '@/lib/funding';
 import { MAX_AGE_DAYS } from '@/lib/sources/techcrunch';
 import {
@@ -109,6 +109,13 @@ export async function GET(request: Request) {
       (r) => r.status === 'new' && r.draft && !r.draft.sentAt && (r.contact?.emails.length ?? 0) > 0
     );
 
+    // Split by whether a HUMAN can actually be reached. The drafts open "Hi <founder> —"
+    // and ask for an internship; delivered to support@ that is a support ticket, so
+    // counting those as ready would be the same lying green light the mailer avoided by
+    // leaving MAIL_FROM unset. Measured 2026-08-08: personal was 0 of 11.
+    const toAPerson = readyToSend.filter((r) => r.contact!.emails.some((e) => !isGenericEmail(e)));
+    const genericOnly = readyToSend.filter((r) => r.contact!.emails.every((e) => isGenericEmail(e)));
+
     return Response.json({
       rows,
       counts: {
@@ -120,8 +127,15 @@ export async function GET(request: Request) {
         withEmail: rows.filter((r) => (r.contact?.emails.length ?? 0) > 0).length,
         sent: rows.filter((r) => r.draft?.sentAt).length,
         readyToSend: readyToSend.length,
+        readyToAPerson: toAPerson.length,
+        readyGenericInboxOnly: genericOnly.length,
       },
-      readyToSend: readyToSend.map((r) => ({ id: r.id, company: r.company, emails: r.contact!.emails })),
+      readyToSend: readyToSend.map((r) => ({
+        id: r.id,
+        company: r.company,
+        emails: r.contact!.emails,
+        reachesAPerson: r.contact!.emails.some((e) => !isGenericEmail(e)),
+      })),
     });
   }
 
@@ -137,7 +151,8 @@ export async function GET(request: Request) {
   // from last year is worse than no draft. `?limit=` bounds one invocation so a slow
   // article fetch can't run past the function timeout; run it again for the next batch.
   if (action === 'prepare-outreach') {
-    const limit = Math.min(Number(new URL(request.url).searchParams.get('limit') ?? 6) || 6, 12);
+    // Default 2 because of the 5-req/min Gemini free-tier ceiling described below.
+    const limit = Math.min(Number(new URL(request.url).searchParams.get('limit') ?? 2) || 2, 12);
     const items = await getRecentFunding(200);
     const existing = await getFundingOutreaches(items.map((i) => i.id));
 
@@ -153,32 +168,55 @@ export async function GET(request: Request) {
     });
 
     const batch = queue.slice(0, limit);
-    const prepared = await Promise.all(
-      batch.map(async (item) => {
-        try {
-          // Contact first: a named founder makes the draft open "Hi <first> —".
-          const contact = await findContact(item);
-          await saveFundingContact(item.id, contact);
-          const outreach = await draftOutreach(item, contact);
-          await saveFundingOutreach(item.id, outreach);
-          return {
-            id: item.id,
-            company: item.company,
-            angle: outreach.angle,
-            subject: outreach.subject,
-            text: outreach.text,
-            founders: contact.founders.map((f) => f.name),
-            emails: contact.emails.map((e) => e.address),
-            contactNote: contact.note ?? null,
-            error: null as string | null,
-          };
-        } catch (e) {
-          return { id: item.id, company: item.company, error: (e as Error).message };
+
+    // SEQUENTIAL, not Promise.all. The Gemini free tier allows 5 requests/minute for
+    // gemini-2.5-flash and each row costs 2 calls, so a parallel batch of 5 rows fires 10
+    // calls at once and 3 of them 429 — measured, not theoretical. Running in series keeps
+    // us under the limit, and a 429 stops the batch rather than burning the rest of the
+    // queue against a quota that is already spent.
+    const prepared: Array<{
+      id: string;
+      company: string;
+      angle?: string;
+      subject?: string;
+      text?: string;
+      founders?: string[];
+      emails?: string[];
+      contactNote?: string | null;
+      error: string | null;
+    }> = [];
+    let rateLimited = false;
+
+    for (const item of batch) {
+      try {
+        // Contact first: a named founder makes the draft open "Hi <first> —".
+        const contact = await findContact(item);
+        await saveFundingContact(item.id, contact);
+        const outreach = await draftOutreach(item, contact);
+        await saveFundingOutreach(item.id, outreach);
+        prepared.push({
+          id: item.id,
+          company: item.company,
+          angle: outreach.angle,
+          subject: outreach.subject,
+          text: outreach.text,
+          founders: contact.founders.map((f) => f.name),
+          emails: contact.emails.map((e) => e.address),
+          contactNote: contact.note ?? null,
+          error: null,
+        });
+      } catch (e) {
+        const message = (e as Error).message;
+        prepared.push({ id: item.id, company: item.company, error: message });
+        if (/RESOURCE_EXHAUSTED|\b429\b/.test(message)) {
+          rateLimited = true;
+          break;
         }
-      })
-    );
+      }
+    }
 
     const ok = prepared.filter((p) => !p.error);
+    const attempted = prepared.length;
     return Response.json({
       ok: true,
       sent: 0,
@@ -186,7 +224,8 @@ export async function GET(request: Request) {
       prepared: ok.length,
       failed: prepared.filter((p) => p.error),
       withEmail: ok.filter((p) => (p.emails?.length ?? 0) > 0).length,
-      remaining: Math.max(0, queue.length - batch.length),
+      rateLimited,
+      remaining: Math.max(0, queue.length - attempted),
       skippedStale: { count: stale.length, maxAgeDays: MAX_AGE_DAYS, items: stale },
       results: ok,
     });

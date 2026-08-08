@@ -33,7 +33,18 @@ const SOCIAL_NOISE_RE = /linkedin\.com\/(posts|pulse|feed)\/|\/status\/|\/share\
 const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}\b/g;
 const EMAIL_REJECT =
   /(noreply|no-reply|donotreply|example\.(com|org)|sentry\.io|wixpress|\.(png|jpe?g|gif|webp|svg|css|js)$|@\d+x|schema\.org|w3\.org)/i;
-const GENERIC_EMAIL = /^(info|hello|contact|support|team|admin|sales|press|hi|help|enquiries|inquiries)@/i;
+const GENERIC_EMAIL =
+  /^(info|hello|contact|support|team|admin|sales|press|hi|help|enquiries|inquiries|careers|jobs|hr|marketing|billing|noc|agent|no-?reply)@/i;
+
+/**
+ * A shared inbox, not a person. Worth knowing downstream: outreach addressed to a founder
+ * that lands in `support@` is a support ticket, not an introduction — measured 2026-08-08,
+ * every address this harvester found across 11 freshly-funded companies was one of these.
+ * Callers use it to avoid reporting such a row as "ready to send to a founder".
+ */
+export function isGenericEmail(address: string): boolean {
+  return GENERIC_EMAIL.test(address);
+}
 
 const CONTACT_LINK_RE = /contact|about|team|people|company/i;
 
