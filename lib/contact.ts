@@ -1,13 +1,13 @@
 import * as cheerio from 'cheerio';
 import type { AnyNode } from 'domhandler';
 import { Type } from '@google/genai';
-import { generateContent } from './gemini';
+import { FLASH_MODEL, generateContent } from './gemini';
 import { fetchHtml } from './scrape';
 import { isUnresolvableNewsLink } from './sources/fundingnews';
 import { stripTags } from './html';
 import type { ContactEmail, ContactPerson, FundingContact, FundingItem } from './types';
 
-const MODEL = 'gemini-2.5-flash';
+const MODEL = FLASH_MODEL;
 const ARTICLE_TIMEOUT_MS = 12_000;
 const SITE_TIMEOUT_MS = 8_000;
 const MAX_SITE_PAGES = 4;

@@ -24,10 +24,40 @@ import type { GenerateContentParameters, GenerateContentResponse } from '@google
  * first key and failing over in lockstep.
  */
 
+/**
+ * The model every agent asks for.
+ *
+ * ⚠️ NOT `gemini-2.5-flash` any more. Google has retired it for NEW projects: a freshly
+ * created key 404s with "This model models/gemini-2.5-flash is no longer available to new
+ * users" — **even though `models.list` still returns it for that same key**. Measured
+ * 2026-08-08 while adding five new keys: the listing said yes, generateContent said no.
+ * Listing a model is not proof you can call it, and older projects keep working, which is
+ * how a mixed-age key pool ends up half broken with no obvious cause.
+ */
+export const FLASH_MODEL = 'gemini-3.6-flash';
+
+/**
+ * Tried in order when a key rejects the requested model, so an old key that only knows 2.5
+ * and a new key that only knows 3.x can sit in the same pool. Degrades per-key, not
+ * per-system.
+ */
+const MODEL_FALLBACKS = [
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-flash-latest',
+  'gemini-2.5-flash',
+];
+
 /** A quota rejection — worth trying another key. Anything else is a real error. */
 function isQuotaError(e: unknown): boolean {
   const msg = e instanceof Error ? e.message : String(e);
   return /RESOURCE_EXHAUSTED|\b429\b|quota/i.test(msg);
+}
+
+/** This KEY cannot serve this MODEL — another model may work; another key will not. */
+function isModelUnavailable(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /no longer available|not found|is not supported|NOT_FOUND|\b404\b/i.test(msg);
 }
 
 export function geminiKeys(): string[] {
@@ -65,22 +95,36 @@ export async function generateContent(
   const keys = geminiKeys();
   if (keys.length === 0) throw new Error('no Gemini key set — set GEMINI_API_KEYS');
 
+  const requested = typeof params.model === 'string' ? params.model : FLASH_MODEL;
+  const models = [requested, ...MODEL_FALLBACKS.filter((m) => m !== requested)];
+
   const start = Math.floor(Math.random() * keys.length);
   let quotaFailures = 0;
   let lastError: unknown;
 
   for (let i = 0; i < keys.length; i++) {
     const key = keys[(start + i) % keys.length];
-    try {
-      const ai = new GoogleGenAI({ apiKey: key });
-      return await ai.models.generateContent(params);
-    } catch (e) {
-      lastError = e;
-      // A non-quota failure (bad prompt, schema mismatch, network) will fail the same way
-      // on every other key, so fail fast instead of burning the pool on it.
-      if (!isQuotaError(e)) throw e;
-      quotaFailures++;
+    const ai = new GoogleGenAI({ apiKey: key });
+    let keyOutOfQuota = false;
+
+    for (const model of models) {
+      try {
+        return await ai.models.generateContent({ ...params, model });
+      } catch (e) {
+        lastError = e;
+        if (isQuotaError(e)) {
+          // Quota is per project, not per model — no other model on this key will help.
+          keyOutOfQuota = true;
+          break;
+        }
+        if (isModelUnavailable(e)) continue; // this key is on an older/newer model set
+        // Anything else (bad prompt, schema mismatch, network) fails identically
+        // everywhere, so fail fast instead of burning the pool on it.
+        throw e;
+      }
     }
+
+    if (keyOutOfQuota) quotaFailures++;
   }
 
   if (quotaFailures === keys.length) throw new GeminiQuotaError(keys.length);

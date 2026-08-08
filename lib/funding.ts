@@ -1,5 +1,5 @@
 import { Type } from '@google/genai';
-import { GeminiQuotaError, generateContent } from './gemini';
+import { FLASH_MODEL, GeminiQuotaError, generateContent } from './gemini';
 import resumeData from '@/profile/resume.json';
 import { fetchFundingNews } from './sources/fundingnews';
 import { MAX_AGE_DAYS, fetchTechCrunchFundingDetailed, type FundingRaw } from './sources/techcrunch';
@@ -12,7 +12,7 @@ import {
 } from './storage';
 import type { FundingContact, FundingItem, FundingOutreach } from './types';
 
-const MODEL = 'gemini-2.5-flash';
+const MODEL = FLASH_MODEL;
 const MAX_OUTREACH = 320;
 
 type ResumeShape = {

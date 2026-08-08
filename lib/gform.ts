@@ -1,10 +1,10 @@
 import { Type } from '@google/genai';
-import { generateContent } from './gemini';
+import { FLASH_MODEL, generateContent } from './gemini';
 import answersData from '@/profile/answers.json';
 import { decodeEntities } from './html';
 import type { GformField, GformPrefill } from './types';
 
-const MODEL = 'gemini-2.5-flash';
+const MODEL = FLASH_MODEL;
 const FETCH_TIMEOUT_MS = 15_000;
 
 // Google's question-type codes (from FB_PUBLIC_LOAD_DATA_). File uploads can't be

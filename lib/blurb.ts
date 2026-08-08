@@ -1,9 +1,9 @@
 import { Type } from '@google/genai';
-import { generateContent } from './gemini';
+import { FLASH_MODEL, generateContent } from './gemini';
 import resumeData from '@/profile/resume.json';
 import type { Blurb, ScrapedJd, TailoredResume } from './types';
 
-const MODEL = 'gemini-2.5-flash';
+const MODEL = FLASH_MODEL;
 const MAX_CHARS = 200;
 
 type ResumeShape = {
