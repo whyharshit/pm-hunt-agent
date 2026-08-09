@@ -7,11 +7,24 @@ import type { Job } from '../types';
 // keep the fetch honest instead of fetching 5× and filtering 90% away. The VC page
 // is a keyword search (no VC category exists) so it's mixed-location — the remote
 // gate sorts it out.
+//
+// The four software categories were added 2026-08-09 to close a gap: SWE became a target
+// function in lib/filters.ts on 2026-08-07 ("add SWE posts also in all sources"), but no
+// source was ever pointed at it, so every SWE row the filters now accept was simply never
+// fetched. Measured live when adding them — product-management carries ~9 listings, each of
+// the software pages ~50, so these four roughly DOUBLE this source's raw input.
+//
+// Note pagination is not available here: `/page-2/` returns HTTP 200 with zero listings
+// (Internshala paginates over AJAX). Breadth by category is the only lever on this board.
 const PAGES = [
   'https://internshala.com/internships/work-from-home-product-management-internships/',
   'https://internshala.com/internships/work-from-home-data-science-internships/',
   'https://internshala.com/internships/work-from-home-operations-internships/',
   'https://internshala.com/internships/work-from-home-machine-learning-internships/',
+  'https://internshala.com/internships/work-from-home-software-development-internships/',
+  'https://internshala.com/internships/work-from-home-web-development-internships/',
+  'https://internshala.com/internships/work-from-home-computer-science-internships/',
+  'https://internshala.com/internships/work-from-home-artificial-intelligence-ai-internships/',
   'https://internshala.com/internships/keywords-venture-capital/',
 ];
 

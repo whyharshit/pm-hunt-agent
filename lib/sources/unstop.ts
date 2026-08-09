@@ -22,7 +22,22 @@ const SEARCHES = [
   'artificial intelligence',
   'business analyst',
   'strategy',
+  // Software (2026-08-09), closing the same gap as the Internshala and LinkedIn sources:
+  // SWE has been a target function since 2026-08-07 with nothing searching for it.
+  'software development',
+  'web development',
 ];
+
+/**
+ * Pages to walk per search term.
+ *
+ * Verified live 2026-08-09: depth varies by term. "product management" is exhausted after
+ * 40 rows (page 2 returns 10, page 3 returns 0) while "software development" still returns
+ * a full page at 3. So the walk stops as soon as a short page proves the term is spent,
+ * rather than firing 30 pointless requests at one host every morning.
+ */
+const MAX_PAGES = 3;
+const PER_PAGE = 30;
 
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
@@ -94,26 +109,39 @@ export async function fetchUnstop(): Promise<Job[]> {
   const seen = new Set<string>();
   const failures: string[] = [];
 
+  // Terms run in parallel, pages within a term run in sequence. That keeps concurrency at
+  // one request per term rather than terms × pages all at once, and the wall clock is still
+  // just the depth of the deepest term.
   const responses = await Promise.all(
     SEARCHES.map(async (term) => {
-      const url =
-        `${ENDPOINT}?opportunity=internships&page=1&per_page=30&oppstatus=open` +
-        `&searchTerm=${encodeURIComponent(term)}`;
-      try {
-        const res = await fetch(url, {
-          headers: { 'user-agent': UA, accept: 'application/json' },
-          next: { revalidate: 0 },
-        });
-        if (!res.ok) throw new Error(`${res.status}`);
-        return (await res.json()) as UnstopResponse;
-      } catch (e) {
-        failures.push(`${term}: ${(e as Error).message}`);
-        return null;
+      const out: UnstopResponse[] = [];
+      for (let page = 1; page <= MAX_PAGES; page += 1) {
+        const url =
+          `${ENDPOINT}?opportunity=internships&page=${page}&per_page=${PER_PAGE}&oppstatus=open` +
+          `&searchTerm=${encodeURIComponent(term)}`;
+        try {
+          const res = await fetch(url, {
+            headers: { 'user-agent': UA, accept: 'application/json' },
+            next: { revalidate: 0 },
+          });
+          if (!res.ok) throw new Error(`${res.status}`);
+          const body = (await res.json()) as UnstopResponse;
+          const rows = body.data?.data ?? [];
+          out.push(body);
+          // A short page is the last page. Stop rather than asking for one that is empty.
+          if (rows.length < PER_PAGE) break;
+        } catch (e) {
+          // Page 1 failing is a source failure worth reporting; a deeper page failing just
+          // means this term is shallower than it looked, and the rows already collected stand.
+          if (page === 1) failures.push(`${term}: ${(e as Error).message}`);
+          break;
+        }
       }
+      return out;
     })
   );
 
-  for (const r of responses) {
+  for (const r of responses.flat()) {
     for (const item of r?.data?.data ?? []) {
       const url = item.seo_url || (item.public_url ? `https://unstop.com/${item.public_url}` : '');
       if (!item.id || !item.title || !url) continue;

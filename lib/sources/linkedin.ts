@@ -12,11 +12,26 @@ const ENDPOINT = 'https://google.serper.dev/search';
 
 // One query per goal field. qdr:w = past week — the cron runs daily, dedupe by
 // job id handles the overlap, and a day-only window misses late-indexed posts.
+//
+// ⚠️ PLAIN KEYWORDS ONLY — NO `site:`, NO "QUOTED PHRASES".
+// serper.dev's FREE tier rejects both with HTTP 400 "Query pattern not allowed for free
+// accounts" (verified query by query, 2026-08-09). Every query here used both, and because
+// they ran under one Promise.all a single 400 rejected the lot: this source returned ZERO
+// rows every single day while looking perfectly configured, its error swallowed into the
+// digest's error line. Re-introducing either operator silently kills the source again.
+//
+// A bare `linkedin.com/jobs/view` token still steers Google to job posts (measured: ~5 of 10
+// results), and the /jobs/view/<id> match below discards everything that is not one, so the
+// looser query costs no precision. If Serper is ever upgraded to a paid plan, `site:` works
+// and is worth restoring.
 const QUERIES = [
-  'site:linkedin.com/jobs/view (intern OR internship) (product OR strategy OR operations OR "founder\'s office" OR "chief of staff") remote',
-  'site:linkedin.com/jobs/view (intern OR internship) ("data analyst" OR "data science" OR analytics) remote',
-  'site:linkedin.com/jobs/view (intern OR internship) ("venture capital" OR "investment analyst") remote',
-  'site:linkedin.com/jobs/view (intern OR internship) ("artificial intelligence" OR "machine learning" OR GenAI) remote',
+  'linkedin.com/jobs/view internship product management strategy operations remote',
+  'linkedin.com/jobs/view internship data analyst analytics remote',
+  'linkedin.com/jobs/view internship venture capital investment analyst remote',
+  'linkedin.com/jobs/view internship artificial intelligence machine learning remote',
+  // Software engineering (2026-08-09), closing the same gap as the Internshala categories:
+  // SWE became a target function on 2026-08-07 with no source ever pointed at it.
+  'linkedin.com/jobs/view internship software engineer developer remote',
 ];
 
 type SerperOrganic = { title?: string; link?: string; snippet?: string };
@@ -36,22 +51,31 @@ export async function fetchLinkedInViaSerper(): Promise<Job[]> {
 
   const jobs: Job[] = [];
   const seen = new Set<string>();
+  const failures: string[] = [];
 
+  // Per-query isolation, matching the other multi-page sources. Under a bare Promise.all one
+  // rejected query took the whole source down with it, which is exactly how the `site:` 400
+  // stayed invisible for so long.
   const responses = await Promise.all(
     QUERIES.map(async (q) => {
-      const res = await fetch(ENDPOINT, {
-        method: 'POST',
-        headers: { 'X-API-KEY': key, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ q, num: 20, gl: 'in', tbs: 'qdr:w' }),
-        next: { revalidate: 0 },
-      });
-      if (!res.ok) throw new Error(`serper ${res.status}: ${(await res.text()).slice(0, 200)}`);
-      return (await res.json()) as { organic?: SerperOrganic[] };
+      try {
+        const res = await fetch(ENDPOINT, {
+          method: 'POST',
+          headers: { 'X-API-KEY': key, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ q, num: 20, gl: 'in', tbs: 'qdr:w' }),
+          next: { revalidate: 0 },
+        });
+        if (!res.ok) throw new Error(`serper ${res.status}: ${(await res.text()).slice(0, 120)}`);
+        return (await res.json()) as { organic?: SerperOrganic[] };
+      } catch (e) {
+        failures.push(`${q.slice(0, 40)}…: ${(e as Error).message}`);
+        return null;
+      }
     })
   );
 
   for (const r of responses) {
-    for (const item of r.organic ?? []) {
+    for (const item of r?.organic ?? []) {
       if (!item.link || !item.title) continue;
       const idMatch = item.link.match(/\/jobs\/view\/(?:[^/]*-)?(\d+)/);
       if (!idMatch) continue;
@@ -73,6 +97,12 @@ export async function fetchLinkedInViaSerper(): Promise<Job[]> {
         description: (item.snippet ?? '').slice(0, 600),
       });
     }
+  }
+
+  // Only a total wipe-out is a source failure worth reporting. One query rejected while the
+  // rest returned rows is not something to put a red mark on the agent card for.
+  if (jobs.length === 0 && failures.length === QUERIES.length) {
+    throw new Error(`all queries failed: ${failures.join('; ')}`);
   }
 
   return jobs;
