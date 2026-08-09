@@ -1,10 +1,13 @@
 import { runAutoSend } from '@/lib/autosend';
+import { runFollowUps } from '@/lib/followup';
 import { runFundingScan } from '@/lib/funding';
 import { fetchFundingNews } from '@/lib/sources/fundingnews';
 import { fetchTechCrunchFundingDetailed } from '@/lib/sources/techcrunch';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 120;
+// Raised from 120 when the follow-up pass moved in: one invocation now covers the scan, the
+// cold sends, an IMAP session and the follow-up sends.
+export const maxDuration = 300;
 
 function authOk(request: Request): boolean {
   const secret = process.env.CRON_SECRET;
@@ -42,12 +45,33 @@ async function handle(request: Request) {
   const isVercelCron = /vercel-cron/i.test(request.headers.get('user-agent') ?? '');
   const shouldSend = autosend === 'true' || (isVercelCron && autosend !== 'off');
 
+  // Follow-ups ride the same schedule, on the same trigger, with the same switches. They are
+  // controlled separately from the cold sends so a rehearsal can inspect one without the
+  // other: `?autosend=off&followups=dry` shows the bumps that are due and mails nobody.
+  const followups = url.searchParams.get('followups');
+  const shouldFollowUp = followups === 'true' || (shouldSend && followups !== 'off');
+
   try {
     const result = await runFundingScan();
 
-    if (shouldSend || autosend === 'dry') {
-      const send = await runAutoSend({ dryRun: autosend === 'dry' });
-      return Response.json({ ok: true, ...result, autosend: send, triggeredByCron: isVercelCron });
+    const autosendResult =
+      shouldSend || autosend === 'dry'
+        ? await runAutoSend({ dryRun: autosend === 'dry' })
+        : null;
+
+    const followupResult =
+      shouldFollowUp || followups === 'dry'
+        ? await runFollowUps({ dryRun: followups === 'dry' })
+        : null;
+
+    if (autosendResult || followupResult) {
+      return Response.json({
+        ok: true,
+        ...result,
+        ...(autosendResult ? { autosend: autosendResult } : {}),
+        ...(followupResult ? { followups: followupResult } : {}),
+        triggeredByCron: isVercelCron,
+      });
     }
 
     return Response.json({ ok: true, ...result });

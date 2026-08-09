@@ -13,6 +13,21 @@ export function fmtDate(iso: string | Date): string {
   return d.toLocaleDateString();
 }
 
+/**
+ * The same idea pointed forwards: "due today", "due tomorrow", "due in 5d".
+ *
+ * `fmtDate` reads a future timestamp as a negative age and renders it as "just now", which on
+ * a follow-up due date says the exact opposite of the truth.
+ */
+export function fmtDue(iso: string | Date): string {
+  const d = typeof iso === 'string' ? new Date(iso) : iso;
+  const days = Math.round((+d - Date.now()) / 86400000);
+  if (days < 0) return 'due now';
+  if (days === 0) return 'due today';
+  if (days === 1) return 'due tomorrow';
+  return `due in ${days}d`;
+}
+
 export function hostOf(u: string): string {
   try {
     return new URL(u).hostname.replace(/^www\./, '');

@@ -9,6 +9,7 @@ import {
   getFundingContact,
   getFundingItem,
   getFundingOutreach,
+  getOutreachSequence,
   getTracked,
   recordAgentRun,
   saveFundingContact,
@@ -28,7 +29,13 @@ import { runTailorPipeline } from './pipeline';
 import { runDiscovery } from './discover';
 import { findContact } from './contact';
 import { draftOutreach, runFundingScan } from './funding';
-import { EDITED_MODEL_SUFFIX, isEditedDraft, renderOutreachTemplate } from './outreach-template';
+import {
+  EDITED_MODEL_SUFFIX,
+  firstName,
+  isEditedDraft,
+  renderOutreachTemplate,
+} from './outreach-template';
+import { closeSequence, greetedIn, recordInitialSend } from './sequence';
 import type { FundingContact, FundingItem, TrackedUrl, WhatsappLead } from './types';
 
 const VALID_STATUSES: TrackedUrl['status'][] = ['new', 'drafted', 'submitted', 'rejected', 'skipped'];
@@ -301,12 +308,46 @@ export async function sendFundingEmail(formData: FormData): Promise<void> {
 
   try {
     const subject = outreach.subject || `${item.company} — quick note`;
-    await sendOutreachMail({ to, subject, text: outreach.text, company: item.company });
-    await saveFundingOutreach(id, { ...outreach, sentAt: new Date().toISOString(), sentTo: to });
+    const sent = await sendOutreachMail({ to, subject, text: outreach.text, company: item.company });
+    const sentAt = new Date().toISOString();
+    await saveFundingOutreach(id, {
+      ...outreach,
+      // "Send again" used to overwrite this, destroying the record of when the founder first
+      // heard from us. The first send is the one the draft is a record of, so it stands; the
+      // full history lives on the sequence.
+      sentAt: outreach.sentAt ?? sentAt,
+      sentTo: to,
+    });
     await updateFundingStatus(id, 'contacted');
+    await recordInitialSend({
+      id,
+      company: item.company,
+      to,
+      greeted: firstName(greetedIn(outreach.text) ?? contact?.founders[0]?.name ?? ''),
+      subject,
+      sentAt,
+      messageId: sent.id,
+    });
   } catch {
     // run-state already recorded as 'error' by sendOutreachMail; the card surfaces it
   }
+  revalidatePath('/');
+}
+
+/**
+ * Stop a follow-up sequence by hand.
+ *
+ * The reply check reads INBOX, so it cannot see a founder who answered from a different
+ * address, replied to a colleague, or landed in a filtered label. This is the override for
+ * those, and for "I have decided not to chase this one".
+ */
+export async function stopFollowUps(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  if (typeof id !== 'string') return;
+  const seq = await getOutreachSequence(id);
+  if (!seq || seq.state !== 'active') return;
+  await closeSequence(seq, 'stopped', 'stopped on the dashboard');
+  revalidatePath('/funding');
   revalidatePath('/');
 }
 

@@ -114,6 +114,57 @@ export type FundingOutreach = {
   sentTo?: string;
 };
 
+/**
+ * One message that actually left the building, appended and never rewritten.
+ *
+ * `FundingOutreach.sentAt` is a single scalar that a re-send overwrites, so it cannot record
+ * a sequence — and a sent draft is the record of what a founder received, so it must not be
+ * made to lie about the first touch. Sends accumulate here instead.
+ */
+export type OutreachSend = {
+  at: string;
+  to: string;
+  kind: 'initial' | 'followup-1' | 'followup-2' | 'followup-3';
+  subject: string;
+  /**
+   * RFC Message-ID of this message. Threads the NEXT touch onto this one via In-Reply-To.
+   * Optional because sends made before sequences existed have to recover it from Gmail's
+   * Sent Mail, and that recovery is allowed to fail.
+   */
+  messageId?: string;
+};
+
+/**
+ * The follow-up state machine for one funding row: up to three bumps after the initial
+ * email, stopping the moment the founder replies or the address bounces.
+ *
+ * `company`, `to`, `greeted` and `subject` are denormalised on purpose. A follow-up fires up
+ * to 24 days after the first email, by which time the funding row may have aged out of the
+ * 200-row read window or been deleted — the sequence must be able to send without reading
+ * anything else.
+ */
+export type OutreachSequence = {
+  /** Same id as the funding row it came from. */
+  id: string;
+  company: string;
+  /** The one address this sequence talks to. A sequence never switches recipient. */
+  to: string;
+  /** First name the copy opens with, so follow-ups greet whoever the initial email did. */
+  greeted: string;
+  /** The initial subject. Follow-ups go out as "Re: <subject>" to sit in the same thread. */
+  subject: string;
+  /** Message-ID of the initial send, anchoring the References chain. */
+  rootMessageId?: string;
+  sends: OutreachSend[];
+  /** Follow-ups completed. 3 means the sequence is spent. */
+  step: 0 | 1 | 2 | 3;
+  /** When the next follow-up is due. Absent once the sequence closes. */
+  nextDueAt?: string;
+  state: 'active' | 'replied' | 'bounced' | 'done' | 'stopped';
+  closedAt?: string;
+  closedReason?: string;
+};
+
 export type ContactPerson = {
   name: string;
   title?: string;

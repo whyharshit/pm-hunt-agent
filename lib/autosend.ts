@@ -1,7 +1,9 @@
 import { addressLooksLikePerson, isGenericEmail } from './contact';
 import { sendOutreachMail } from './mailer';
 import { firstName, isEditedDraft, renderOutreachTemplate } from './outreach-template';
+import { createPacer } from './pace';
 import { readResumePdf } from './resume-file';
+import { recordInitialSend } from './sequence';
 import { MAX_AGE_DAYS } from './sources/techcrunch';
 import {
   getFundingContacts,
@@ -72,6 +74,12 @@ function trustedProvenance(e: ContactEmail): boolean {
 function domainUnverified(contact: FundingContact): boolean {
   return /found by web search/i.test(contact.note ?? '');
 }
+
+/**
+ * Time this pass may spend spacing sends apart. Both passes run inside one 300s invocation
+ * alongside the scan, so the two budgets are deliberately small enough to co-exist with it.
+ */
+const PACE_BUDGET_MS = 70_000;
 
 export function autoSendCap(): number {
   const raw = process.env.AUTO_SEND_MAX_PER_DAY;
@@ -227,8 +235,12 @@ export async function runAutoSend(opts: { dryRun?: boolean } = {}): Promise<Auto
 
   await setAgentRunning('mailer');
 
+  // Spread the batch out instead of stamping every founder's email with the same second.
+  const pace = createPacer({ budgetMs: PACE_BUDGET_MS, count: batch.length });
+
   for (const c of batch) {
     try {
+      await pace();
       // The stored draft greets founders[0]; falling back to an employee means it now
       // greets the wrong person. Re-render against whoever is actually receiving it.
       let draft = c.draft;
@@ -255,18 +267,27 @@ export async function runAutoSend(opts: { dryRun?: boolean } = {}): Promise<Auto
         await saveFundingOutreach(c.item.id, draft);
       }
 
-      await sendOutreachMail({
+      const subject = draft.subject || `${c.item.company} — quick note`;
+      const sent = await sendOutreachMail({
         to: c.to,
-        subject: draft.subject || `${c.item.company} — quick note`,
+        subject,
         text: draft.text,
         company: c.item.company,
       });
-      await saveFundingOutreach(c.item.id, {
-        ...draft,
-        sentAt: new Date().toISOString(),
-        sentTo: c.to,
-      });
+      const sentAt = new Date().toISOString();
+      await saveFundingOutreach(c.item.id, { ...draft, sentAt, sentTo: c.to });
       await updateFundingStatus(c.item.id, 'contacted');
+      // Open the follow-up sequence here, with the real Message-ID. It exists only at the
+      // moment of sending, and it is what every later follow-up threads onto.
+      await recordInitialSend({
+        id: c.item.id,
+        company: c.item.company,
+        to: c.to,
+        greeted: c.greeted,
+        subject,
+        sentAt,
+        messageId: sent.id,
+      });
       result.sent.push({ company: c.item.company, to: c.to, greeted: c.greeted, isFounder: c.isFounder });
     } catch (e) {
       result.failed.push({ company: c.item.company, to: c.to, error: (e as Error).message });

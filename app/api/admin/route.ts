@@ -1,5 +1,7 @@
 import { addressLooksLikePerson, findContact, isGenericEmail } from '@/lib/contact';
 import { enrichmentConfigured, findPeopleEmails, resolveDomain } from '@/lib/enrich';
+import { backfillSequences, followUpCap } from '@/lib/followup';
+import { imapConfigured } from '@/lib/imap';
 import { firstName, isEditedDraft, renderOutreachTemplate } from '@/lib/outreach-template';
 import { isUnresolvableNewsLink, resolveDomainViaSearch } from '@/lib/sources/fundingnews';
 import { draftOutreach } from '@/lib/funding';
@@ -8,6 +10,7 @@ import {
   deleteJob,
   deleteTracked,
   deleteWhatsappLead,
+  getAllOutreachSequences,
   getFundingContacts,
   getFundingOutreaches,
   getRecentFunding,
@@ -42,6 +45,13 @@ export const maxDuration = 300;
  *                       — bulk "Find contact" + "Draft outreach" over fresh un-drafted
  *                         rows, so the human step is just review-and-send. Also sends
  *                         NOTHING. Idempotent: already-drafted rows are skipped.
+ *   ?action=followups   — read-only view of every follow-up sequence: which founders are
+ *                         still being chased, at which of the three steps, when the next
+ *                         bump is due, and which sequences replies or bounces closed.
+ *   ?action=followup-backfill
+ *                       — start a sequence for every email that went out BEFORE sequences
+ *                         existed, recovering each Message-ID from Gmail's Sent Mail so the
+ *                         follow-ups land in the original thread. Sends NOTHING. Idempotent.
  *
  * The markers are deliberately narrow: the smoke rows planted by the 2026-08-02 WhatsApp
  * ingest test ("SMOKE TEST — delete me", forms.gle/internAgentSmokeTest,
@@ -72,6 +82,41 @@ export async function GET(request: Request) {
 
   const params = new URL(request.url).searchParams;
   const action = params.get('action');
+
+  // Read-only view of every follow-up sequence, live and closed. The authoritative answer to
+  // "who is still being chased, at which step, and who stopped it".
+  if (action === 'followups') {
+    const sequences = await getAllOutreachSequences();
+    sequences.sort((a, b) => (a.nextDueAt ?? '9999').localeCompare(b.nextDueAt ?? '9999'));
+    const active = sequences.filter((s) => s.state === 'active');
+    return Response.json({
+      counts: {
+        total: sequences.length,
+        active: active.length,
+        dueNow: active.filter((s) => s.nextDueAt && Date.parse(s.nextDueAt) <= Date.now()).length,
+        replied: sequences.filter((s) => s.state === 'replied').length,
+        bounced: sequences.filter((s) => s.state === 'bounced').length,
+        stopped: sequences.filter((s) => s.state === 'stopped').length,
+        done: sequences.filter((s) => s.state === 'done').length,
+        // A sequence with no rootMessageId sends follow-ups outside the original thread.
+        unthreaded: sequences.filter((s) => !s.rootMessageId).length,
+        followUpsSent: sequences.reduce(
+          (n, s) => n + s.sends.filter((x) => x.kind !== 'initial').length,
+          0
+        ),
+      },
+      cap: followUpCap(),
+      imapConfigured: imapConfigured(),
+      sequences,
+    });
+  }
+
+  // Give the emails that went out before sequences existed a sequence to belong to, and
+  // recover their Message-IDs from Gmail's Sent Mail so their follow-ups thread properly.
+  // Idempotent: rows that already have a sequence are skipped.
+  if (action === 'followup-backfill') {
+    return Response.json(await backfillSequences());
+  }
 
   // Answered before the tracker/jobs reads below, which this action has no use for.
   if (action === 'funding') {

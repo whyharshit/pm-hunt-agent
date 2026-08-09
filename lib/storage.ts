@@ -8,6 +8,7 @@ import type {
   FundingOutreach,
   GformPrefill,
   Job,
+  OutreachSequence,
   ScrapedJd,
   StoredPdf,
   TailoredResume,
@@ -31,6 +32,19 @@ const TRACKER_INDEX = 'tracker:index';
 const FUNDING_INDEX = 'funding:index';
 const FUNDING_SEEN = 'funding:seen';
 const WA_LEAD_INDEX = 'walead:index';
+/**
+ * Follow-up sequences get their own index rather than riding the funding rows.
+ *
+ * `followup:due` is scored by the next follow-up's due time, so the daily pass is a range
+ * query — it costs nothing on a day with nothing due, and it CANNOT miss a sequence the way
+ * scanning `getRecentFunding(200)` would once a row ages out of the newest-200 window.
+ * Closed sequences leave it, so it only ever holds live work.
+ *
+ * `followup:all` keeps every sequence enumerable for the dashboard and the admin queue view,
+ * including the closed ones the due index has dropped.
+ */
+const FOLLOWUP_DUE = 'followup:due';
+const FOLLOWUP_ALL = 'followup:all';
 /** Group chatter is high-volume, so dedupe keys expire instead of growing a set forever. */
 const WA_SEEN_TTL_SECONDS = 60 * 60 * 24 * 45;
 const jobKey = (id: string) => `job:${id}`;
@@ -40,6 +54,7 @@ const fundingOutreachKey = (id: string) => `funding-outreach:${id}`;
 const fundingContactKey = (id: string) => `funding-contact:${id}`;
 const gformKey = (id: string) => `gform:${id}`;
 const waSeenKey = (id: string) => `wa:seen:${id}`;
+const followupKey = (id: string) => `followup:${id}`;
 const waLeadKey = (id: string) => `walead:${id}`;
 const agentKey = (id: string) => `agent:${id}`;
 const jdKey = (id: string) => `jd:${id}`;
@@ -264,6 +279,68 @@ export async function getFundingOutreaches(ids: string[]): Promise<Map<string, F
   return out;
 }
 
+/**
+ * Write a sequence and keep both indexes honest in the same call.
+ *
+ * The due index is derived state, so it is never updated separately: a sequence that is no
+ * longer `active`, or has no `nextDueAt`, is removed from it here. Letting a caller forget
+ * that `zrem` is how a replied founder keeps receiving follow-ups.
+ */
+export async function saveOutreachSequence(seq: OutreachSequence): Promise<void> {
+  const pipe = redis().pipeline();
+  pipe.set(followupKey(seq.id), JSON.stringify(seq));
+  pipe.sadd(FOLLOWUP_ALL, seq.id);
+  if (seq.state === 'active' && seq.nextDueAt) {
+    pipe.zadd(FOLLOWUP_DUE, { score: +new Date(seq.nextDueAt), member: seq.id });
+  } else {
+    pipe.zrem(FOLLOWUP_DUE, seq.id);
+  }
+  await pipe.exec();
+}
+
+export async function getOutreachSequence(id: string): Promise<OutreachSequence | null> {
+  const raw = await redis().get(followupKey(id));
+  if (!raw) return null;
+  return typeof raw === 'string' ? (JSON.parse(raw) as OutreachSequence) : (raw as OutreachSequence);
+}
+
+export async function getOutreachSequences(ids: string[]): Promise<Map<string, OutreachSequence>> {
+  const out = new Map<string, OutreachSequence>();
+  if (ids.length === 0) return out;
+  const pipe = redis().pipeline();
+  for (const id of ids) pipe.get(followupKey(id));
+  const raws = (await pipe.exec()) as (string | OutreachSequence | null)[];
+  ids.forEach((id, i) => {
+    const raw = raws[i];
+    if (!raw) return;
+    out.set(id, typeof raw === 'string' ? (JSON.parse(raw) as OutreachSequence) : raw);
+  });
+  return out;
+}
+
+/** Sequences whose next follow-up is due at or before `at`. Oldest due first. */
+export async function getDueSequences(at: Date): Promise<OutreachSequence[]> {
+  const ids = (await redis().zrange(FOLLOWUP_DUE, 0, +at, { byScore: true })) as string[];
+  if (ids.length === 0) return [];
+  const map = await getOutreachSequences(ids);
+  return ids.map((id) => map.get(id)).filter((s): s is OutreachSequence => Boolean(s));
+}
+
+/** Every sequence ever started, closed ones included. For the dashboard and admin views. */
+export async function getAllOutreachSequences(): Promise<OutreachSequence[]> {
+  const ids = (await redis().smembers(FOLLOWUP_ALL)) as string[];
+  const map = await getOutreachSequences(ids);
+  return [...map.values()];
+}
+
+export async function deleteOutreachSequence(id: string): Promise<void> {
+  const pipe = redis().pipeline();
+  pipe.del(followupKey(id));
+  pipe.zrem(FOLLOWUP_DUE, id);
+  pipe.srem(FOLLOWUP_ALL, id);
+  await pipe.exec();
+}
+
 export async function getFundingContact(id: string): Promise<FundingContact | null> {
   const raw = await redis().get(fundingContactKey(id));
   if (!raw) return null;
@@ -391,6 +468,12 @@ export async function deleteFundingItem(id: string): Promise<void> {
   pipe.zrem(FUNDING_INDEX, id);
   pipe.del(fundingOutreachKey(id));
   pipe.del(fundingContactKey(id));
+  // The follow-up sequence must go too. It carries its own copy of the recipient and can
+  // send without the funding row, so leaving it behind would keep mailing a founder off a
+  // row the user deliberately deleted.
+  pipe.del(followupKey(id));
+  pipe.zrem(FOLLOWUP_DUE, id);
+  pipe.srem(FOLLOWUP_ALL, id);
   await pipe.exec();
 }
 

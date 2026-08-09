@@ -1,12 +1,18 @@
 import {
   getFundingContacts,
   getFundingOutreaches,
+  getOutreachSequences,
   getRecentFunding,
 } from '@/lib/storage';
 import { mailerConfigured } from '@/lib/mailer';
 import { FundingSection } from '../funding-section';
 import { Nav } from '../nav';
-import type { FundingContact, FundingItem, FundingOutreach } from '@/lib/types';
+import type {
+  FundingContact,
+  FundingItem,
+  FundingOutreach,
+  OutreachSequence,
+} from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,12 +30,17 @@ export default async function FundingPage({
   let items: FundingItem[] = [];
   let outreach = new Map<string, FundingOutreach>();
   let contacts = new Map<string, FundingContact>();
+  let sequences = new Map<string, OutreachSequence>();
   let error: string | null = null;
 
   try {
     items = await getRecentFunding(200);
     const ids = items.map((i) => i.id);
-    [outreach, contacts] = await Promise.all([getFundingOutreaches(ids), getFundingContacts(ids)]);
+    [outreach, contacts, sequences] = await Promise.all([
+      getFundingOutreaches(ids),
+      getFundingContacts(ids),
+      getOutreachSequences(ids),
+    ]);
   } catch (e) {
     error = (e as Error).message;
   }
@@ -47,6 +58,9 @@ export default async function FundingPage({
         !outreach.get(i.id)!.sentAt &&
         (contacts.get(i.id)?.emails.length ?? 0) > 0
     ).length,
+    // The point of the whole follow-up machine: who actually answered. It cannot live on
+    // `FundingItem.status`, which says `contacted` for replies, bounces and silence alike.
+    replied: items.filter((i) => sequences.get(i.id)?.state === 'replied').length,
   };
 
   const shown =
@@ -58,9 +72,11 @@ export default async function FundingPage({
             !outreach.get(i.id)!.sentAt &&
             (contacts.get(i.id)?.emails.length ?? 0) > 0
         )
-      : status && status !== 'all'
-        ? items.filter((i) => i.status === status)
-        : items;
+      : status === 'replied'
+        ? items.filter((i) => sequences.get(i.id)?.state === 'replied')
+        : status && status !== 'all'
+          ? items.filter((i) => i.status === status)
+          : items;
 
   const tab = (key: string, label: string, n: number) => (
     <a
@@ -89,6 +105,7 @@ export default async function FundingPage({
 
         <div className="mb-4 flex flex-wrap gap-1.5">
           {tab('ready', 'ready to send', counts.ready)}
+          {tab('replied', 'replied', counts.replied)}
           {tab('all', 'all', counts.all)}
           {tab('new', 'new', counts.new)}
           {tab('contacted', 'contacted', counts.contacted)}
@@ -99,6 +116,7 @@ export default async function FundingPage({
           items={shown}
           outreach={outreach}
           contacts={contacts}
+          sequences={sequences}
           mailerReady={mailerConfigured()}
         />
       </main>

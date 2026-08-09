@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { toHtml } from './mail-html';
 import { RESUME_FILENAME, readResumePdf } from './resume-file';
 import { recordAgentRun, setAgentRunning } from './storage';
 
@@ -20,7 +21,9 @@ export class MailConfigError extends Error {}
  * Resend stays as the fallback for whenever a domain does get verified — better long-term
  * deliverability and it keeps outreach out of the personal inbox.
  *
- * Note IMAP is NOT an option for either: it is a read protocol. Sending is SMTP.
+ * Note IMAP is NOT an option for SENDING with either: it is a read protocol, sending is SMTP.
+ * Reading is exactly what it is for, though, and lib/imap.ts uses the same Gmail credentials
+ * to check whether a founder replied before a follow-up goes out.
  */
 type Transport =
   | { kind: 'gmail'; user: string; pass: string; from: string }
@@ -70,8 +73,17 @@ export async function sendMail(opts: {
   to: string;
   subject: string;
   text: string;
+  /**
+   * Optional HTML part. Sent ALONGSIDE `text`, never instead of it, so the message is
+   * multipart/alternative and a client that refuses HTML still shows the real words.
+   */
+  html?: string;
   replyTo?: string;
   attachments?: Attachment[];
+  /** Message-ID of the message this replies to. Puts a follow-up INSIDE the original thread. */
+  inReplyTo?: string;
+  /** The thread's Message-ID chain, oldest first. Clients that ignore In-Reply-To use this. */
+  references?: string[];
 }): Promise<SendResult> {
   const transport = config();
   const attachments = opts.attachments ?? [];
@@ -93,7 +105,10 @@ export async function sendMail(opts: {
         to: opts.to,
         subject: opts.subject,
         text: opts.text,
+        ...(opts.html ? { html: opts.html } : {}),
         ...(opts.replyTo ? { replyTo: opts.replyTo } : {}),
+        ...(opts.inReplyTo ? { inReplyTo: opts.inReplyTo } : {}),
+        ...(opts.references?.length ? { references: opts.references } : {}),
         ...(attachments.length
           ? { attachments: attachments.map((a) => ({ filename: a.filename, content: a.content })) }
           : {}),
@@ -124,7 +139,12 @@ export async function sendMail(opts: {
       to: [opts.to],
       subject: opts.subject,
       text: opts.text,
+      ...(opts.html ? { html: opts.html } : {}),
       ...(opts.replyTo ? { reply_to: opts.replyTo } : {}),
+      // No inReplyTo/references here: Resend's send API takes no threading headers, so a
+      // follow-up sent through this transport lands as a fresh message rather than in the
+      // thread. Acceptable while Resend is the dormant fallback and Gmail is live; if that
+      // ever flips, threading has to move to Resend's custom-headers field.
       // Resend takes attachment bytes as base64, unlike nodemailer's Buffer.
       ...(attachments.length
         ? {
@@ -151,22 +171,37 @@ export async function sendOutreachMail(opts: {
   subject: string;
   text: string;
   company: string;
+  inReplyTo?: string;
+  references?: string[];
+  /**
+   * Defaults to true so the initial cold email always carries the resume. Follow-ups pass
+   * false: the PDF is already sitting in the thread, and re-attaching 150KB on every bump is
+   * both pointless and one of the things spam filters actually score on.
+   */
+  attachResume?: boolean;
 }): Promise<SendResult> {
+  const { company, attachResume = true, ...mail } = opts;
   await setAgentRunning('mailer');
   try {
     // Every outreach email carries the resume (user's instruction 2026-08-09). Attached
     // here, in the single funnel all outreach passes through, so the manual dashboard send
     // and the unattended cron send can never diverge on what the founder receives.
-    const resume = await readResumePdf();
+    const resume = attachResume ? await readResumePdf() : null;
     const result = await sendMail({
-      ...opts,
+      ...mail,
+      // Built here for the same reason the resume is attached here: this is the one funnel
+      // all outreach passes through, so the dashboard send and the unattended cron can never
+      // disagree about what the founder sees.
+      html: toHtml(mail.text),
       ...(resume ? { attachments: [{ filename: RESUME_FILENAME, content: resume }] } : {}),
     });
     await recordAgentRun('mailer', {
       state: 'ok',
       // Records whether the resume actually went, so a silently missing attachment is
       // visible on the agent card instead of being discovered by a founder.
-      summary: `sent to ${opts.to} (${opts.company})${resume ? ' + resume' : ' — NO RESUME ATTACHED'}`,
+      summary:
+        `sent to ${opts.to} (${company})` +
+        (attachResume ? (resume ? ' + resume' : ' — NO RESUME ATTACHED') : ' · follow-up'),
       error: null,
     });
     return result;

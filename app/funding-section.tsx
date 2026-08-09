@@ -5,15 +5,22 @@ import {
   resetFundingDraft,
   sendFundingEmail,
   setFundingStatus,
+  stopFollowUps,
   updateFundingDraft,
 } from '@/lib/actions';
 import { deleteFundingRow } from '@/lib/actions';
 import { addressLooksLikePerson, isGenericEmail } from '@/lib/contact';
 import { DeleteButton } from './delete-button';
 import { isEditedDraft } from '@/lib/outreach-template';
-import { fmtDate, hostOf } from '@/lib/format';
+import { fmtDate, fmtDue, hostOf } from '@/lib/format';
+import { boldSegments } from '@/lib/mail-html';
 import { CopyButton } from './copy-button';
-import type { FundingContact, FundingItem, FundingOutreach } from '@/lib/types';
+import type {
+  FundingContact,
+  FundingItem,
+  FundingOutreach,
+  OutreachSequence,
+} from '@/lib/types';
 
 const STATUSES: FundingItem['status'][] = ['new', 'contacted', 'skipped'];
 
@@ -112,9 +119,19 @@ function AddContactRow({ item }: { item: FundingItem }) {
  */
 function DraftEditor({ item, draft }: { item: FundingItem; draft: FundingOutreach }) {
   if (draft.sentAt) {
+    // Rendered with the same emphasis the email carried. Showing it flat would make this
+    // record disagree with what the founder actually read.
     return (
       <p className="whitespace-pre-line rounded border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
-        {draft.text}
+        {boldSegments(draft.text).map((s, i) =>
+          s.bold ? (
+            <strong key={i} className="font-semibold text-zinc-900 dark:text-zinc-100">
+              {s.text}
+            </strong>
+          ) : (
+            <span key={i}>{s.text}</span>
+          )
+        )}
       </p>
     );
   }
@@ -161,6 +178,64 @@ function DraftEditor({ item, draft }: { item: FundingItem; draft: FundingOutreac
         )}
       </div>
     </form>
+  );
+}
+
+/**
+ * Where a founder is in the three-touch follow-up sequence.
+ *
+ * This is the only place the outcome of an email is visible: `FundingItem.status` says
+ * `contacted` whether the founder wrote back, bounced or ignored it, so without this row a
+ * reply detected at 03:30 UTC would never surface anywhere a human looks.
+ */
+function SequenceRow({ seq }: { seq: OutreachSequence }) {
+  const followUps = seq.sends.filter((s) => s.kind !== 'initial').length;
+
+  if (seq.state !== 'active') {
+    const tone =
+      seq.state === 'replied'
+        ? 'text-green-700 dark:text-green-400'
+        : seq.state === 'bounced'
+          ? 'text-red-700 dark:text-red-400'
+          : 'text-zinc-500 dark:text-zinc-400';
+    const label =
+      seq.state === 'replied'
+        ? '✓ they replied · follow-ups stopped'
+        : seq.state === 'bounced'
+          ? '⚠ bounced · follow-ups stopped'
+          : seq.state === 'stopped'
+            ? 'follow-ups stopped by hand'
+            : 'all 3 follow-ups sent · no reply';
+    return (
+      <div className={`text-[11px] ${tone}`}>
+        {label}
+        {followUps > 0 && ` · ${followUps} follow-up${followUps > 1 ? 's' : ''} sent`}
+        {seq.closedAt && ` · ${fmtDate(seq.closedAt)}`}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+      <span>
+        ↻ follow-up {seq.step + 1} of 3 {seq.nextDueAt ? fmtDue(seq.nextDueAt) : 'unscheduled'}
+        {followUps > 0 && ` · ${followUps} sent`}
+      </span>
+      {!seq.rootMessageId && (
+        <span className="text-amber-700 dark:text-amber-400">
+          no thread id · this bump arrives as a new email, not a reply
+        </span>
+      )}
+      <form action={stopFollowUps}>
+        <input type="hidden" name="id" value={seq.id} />
+        <button
+          type="submit"
+          className="h-6 rounded border border-zinc-300 bg-white px-2 text-[11px] text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          Stop follow-ups
+        </button>
+      </form>
+    </div>
   );
 }
 
@@ -250,11 +325,13 @@ export function FundingSection({
   items,
   outreach,
   contacts,
+  sequences,
   mailerReady,
 }: {
   items: FundingItem[];
   outreach: Map<string, FundingOutreach>;
   contacts: Map<string, FundingContact>;
+  sequences: Map<string, OutreachSequence>;
   mailerReady: boolean;
 }) {
   return (
@@ -271,6 +348,7 @@ export function FundingSection({
           {items.map((it) => {
             const draft = outreach.get(it.id);
             const contact = contacts.get(it.id);
+            const seq = sequences.get(it.id);
             return (
               <li key={it.id} className="flex flex-col gap-2 px-4 py-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-4">
@@ -348,6 +426,8 @@ export function FundingSection({
                 {draft && contact && contact.emails.length > 0 && (
                   <SendRow item={it} draft={draft} contact={contact} mailerReady={mailerReady} />
                 )}
+
+                {seq && <SequenceRow seq={seq} />}
 
                 <div className="flex flex-wrap items-center gap-2">
                   <AddContactRow item={it} />
