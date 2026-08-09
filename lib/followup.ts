@@ -60,6 +60,8 @@ export function followUpCap(): number {
 
 export type FollowUpResult = {
   cap: number;
+  /** Sequences created this run for emails that predate sequences. Normally 0 after day one. */
+  backfilled: number;
   /** Sequences whose next touch was due at run time. */
   due: number;
   sent: Array<{ company: string; to: string; step: number; threaded: boolean }>;
@@ -79,10 +81,22 @@ export type FollowUpResult = {
 export async function runFollowUps(opts: { dryRun?: boolean } = {}): Promise<FollowUpResult> {
   const dryRun = opts.dryRun ?? false;
   const cap = followUpCap();
+
+  // Self-heal before reading the queue. Any email sent without a sequence — the batch that
+  // predates this feature, or a send that failed midway — is adopted here, so the system
+  // never depends on someone remembering to fire a one-off admin call. It also has to work
+  // this way in practice: `/api/admin` needs a bearer secret that is deliberately not
+  // shareable, while the cron authenticates as Vercel and can do it unattended.
+  //
+  // Cheap to repeat: after the first run nothing is pending, and the backfill returns
+  // before opening an IMAP connection. A dry run stays read-only and skips it.
+  const backfill = dryRun ? null : await backfillSequences();
+
   const due = await getDueSequences(new Date());
 
   const result: FollowUpResult = {
     cap,
+    backfilled: backfill?.created ?? 0,
     due: due.length,
     sent: [],
     stopped: [],
@@ -91,7 +105,22 @@ export async function runFollowUps(opts: { dryRun?: boolean } = {}): Promise<Fol
     imapError: null,
   };
 
-  if (due.length === 0) return result;
+  if (due.length === 0) {
+    // Adopting sequences is the only visible sign the backfill ran, and the admin endpoint
+    // that would otherwise report it needs a secret the user cannot share. Put it on the
+    // agent card so the dashboard tells the story on its own.
+    if (result.backfilled > 0) {
+      await recordAgentRun('mailer', {
+        state: backfill?.imapError ? 'error' : 'ok',
+        summary:
+          `adopted ${result.backfilled} sent email${result.backfilled > 1 ? 's' : ''} into ` +
+          `follow-up sequences (${backfill?.unthreaded ?? 0} without a thread id) · none due yet`,
+        stats: { backfilled: result.backfilled, due: 0 },
+        error: backfill?.imapError ?? null,
+      });
+    }
+    return result;
+  }
 
   if (cap === 0) {
     if (!dryRun) {
@@ -107,6 +136,12 @@ export async function runFollowUps(opts: { dryRun?: boolean } = {}): Promise<Fol
   if (!imapConfigured()) {
     result.imapError =
       'IMAP not configured (GMAIL_USER + GMAIL_APP_PASSWORD) — cannot tell who replied, so nothing was sent';
+    // Recorded, not just returned. This is a silent no-op otherwise, and the admin endpoint
+    // that would reveal it needs a secret the user cannot share, so the agent card is the
+    // only place the truth can surface.
+    if (!dryRun) {
+      await recordAgentRun('mailer', { state: 'error', error: result.imapError });
+    }
     return result;
   }
 
@@ -208,8 +243,14 @@ export async function runFollowUps(opts: { dryRun?: boolean } = {}): Promise<Fol
       summary:
         `follow-ups: ${result.sent.length} sent, ${result.stopped.length} closed` +
         ` (${result.due} due, cap ${cap})` +
+        (result.backfilled ? ` · adopted ${result.backfilled}` : '') +
         (result.failed.length ? ` · ${result.failed.length} failed` : ''),
-      stats: { sent: result.sent.length, closed: result.stopped.length, due: result.due },
+      stats: {
+        sent: result.sent.length,
+        closed: result.stopped.length,
+        due: result.due,
+        backfilled: result.backfilled,
+      },
       error:
         result.imapError ??
         (result.failed.length
