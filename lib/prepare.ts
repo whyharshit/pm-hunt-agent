@@ -300,7 +300,24 @@ export async function runDraftPass(opts: DraftPassOptions): Promise<DraftPassRes
     return true;
   });
 
-  const batch = queue.slice(0, Math.max(0, opts.limit));
+  // A draft on a row nobody can be mailed at is a Gemini call spent to grow the backlog.
+  // Rows that already hold an address on a domain the sender will accept are the ones a
+  // draft turns into an actual email, so they go first.
+  //
+  // This is ORDERING, not a gate — every row in the queue still gets drafted eventually, and
+  // the real decision stays in runAutoSend. Deliberately a cheap heuristic rather than a copy
+  // of runAutoSend's checks: duplicating those here would give the project two definitions of
+  // "sendable" that drift apart, which is the exact failure this file exists to undo.
+  const contacts = await getFundingContacts(queue.map((i) => i.id));
+  const mailable = (id: string): number => {
+    const c = contacts.get(id);
+    if (!c || c.emails.length === 0) return 0;
+    if (/found by web search/i.test(c.note ?? '')) return 0; // runAutoSend refuses these
+    return 1;
+  };
+  const ordered = [...queue].sort((a, b) => mailable(b.id) - mailable(a.id));
+
+  const batch = ordered.slice(0, Math.max(0, opts.limit));
 
   // SEQUENTIAL, not Promise.all. The Gemini free tier allows 5 requests/minute for
   // gemini-2.5-flash and each row costs 2 calls, so a parallel batch of 5 rows fires 10
@@ -406,13 +423,24 @@ export function draftLimitPerRun(): number {
 }
 
 /**
- * Time this whole pass may occupy inside the funding invocation.
+ * Time each phase may occupy inside the funding invocation. SPLIT, not shared.
  *
  * The route is capped at 300s and must still fit `runAutoSend` (70s of pacing) and
- * `runFollowUps` (70s of pacing plus an IMAP session) AFTER this. Being late here costs a
- * day of sending, so the budget is deliberately smaller than the room available.
+ * `runFollowUps` (70s of pacing plus an IMAP session) AFTER this, so the pass gets ~100s.
+ *
+ * ⚠️ They are two budgets because ONE shared deadline starved the drafts. Measured on the
+ * first prod run 2026-08-13: the enrichment backlog was 41 unresolved domains, each costing a
+ * Hunter call plus a Serper call, and the free phase spent essentially the whole 100s before
+ * the drafting phase started — which then managed exactly ONE row and reported `timedOut`.
+ * Enrichment is the cheap half and starves the expensive half if allowed to run first
+ * unbounded, and a row with a contact but no draft is just as unsendable as one with neither.
+ *
+ * Drafting gets the larger slice because a row costs 2 SEQUENTIAL Gemini calls plus an
+ * article fetch, where a domain lookup is two HTTP requests. Enrichment also shrinks as the
+ * backlog drains; drafting does not.
  */
-const PREPARE_BUDGET_MS = 100_000;
+const ENRICH_BUDGET_MS = 40_000;
+const DRAFT_BUDGET_MS = 60_000;
 
 export type PrepareResult = {
   enrich: EnrichPassResult | null;
@@ -435,15 +463,22 @@ export async function runPrepare(opts: { dryRun?: boolean } = {}): Promise<Prepa
     return { enrich: null, drafts: null, dryRun: true, wouldSpend: { credits, drafts } };
   }
 
-  const deadline = Date.now() + PREPARE_BUDGET_MS;
-
   // Enrichment is skipped entirely at 0 rather than run with a 0 budget: the free domain
   // phase still costs an HTTP call per row, and 0 is meant to be off, not cheap.
   const enrichResult =
     credits > 0
-      ? await runEnrichPass({ spendBudget: credits, deadline, skipUnverifiedDomains: true })
+      ? await runEnrichPass({
+          spendBudget: credits,
+          deadline: Date.now() + ENRICH_BUDGET_MS,
+          skipUnverifiedDomains: true,
+        })
       : null;
-  const draftResult = drafts > 0 ? await runDraftPass({ limit: drafts, deadline }) : null;
+
+  // Its own clock, started here: whatever enrichment did or did not finish, drafting gets
+  // its full slice. Unspent enrichment time is NOT donated — the point of the split is that
+  // the cheap phase can never eat the expensive one.
+  const draftResult =
+    drafts > 0 ? await runDraftPass({ limit: drafts, deadline: Date.now() + DRAFT_BUDGET_MS }) : null;
 
   return { enrich: enrichResult, drafts: draftResult, dryRun: false };
 }
