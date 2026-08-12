@@ -1,6 +1,7 @@
 import { runAutoSend } from '@/lib/autosend';
 import { runFollowUps } from '@/lib/followup';
 import { runFundingScan } from '@/lib/funding';
+import { runPrepare } from '@/lib/prepare';
 import { fetchFundingNews } from '@/lib/sources/fundingnews';
 import { fetchTechCrunchFundingDetailed } from '@/lib/sources/techcrunch';
 
@@ -51,8 +52,26 @@ async function handle(request: Request) {
   const followups = url.searchParams.get('followups');
   const shouldFollowUp = followups === 'true' || (shouldSend && followups !== 'off');
 
+  // Enrichment + drafting ride the same trigger as the sends, for one reason: without them
+  // the sender has nothing to send. They ran ONLY as manual admin actions until 2026-08-13,
+  // so the cron woke each morning to rows with no contact and no draft and mailed nobody for
+  // four days straight while reporting `ok: true`. See lib/prepare.ts.
+  //
+  // Same switches as the other two passes, and the same reason for them: `?prepare=dry`
+  // reports the budgets and touches nothing, `?prepare=off` suppresses a scheduled run, and
+  // `?prepare=true` forces one by hand. Note that unlike a send, this pass SPENDS a metered
+  // quota (Hunter credits, Gemini calls), so it is deliberately not run by a bare debug curl.
+  const prepare = url.searchParams.get('prepare');
+  const shouldPrepare = prepare === 'true' || (shouldSend && prepare !== 'off');
+
   try {
     const result = await runFundingScan();
+
+    // BEFORE the sender, never after: a row enriched and drafted this morning is then
+    // eligible in the very same invocation, so a company that raised yesterday can be
+    // contacted today rather than tomorrow.
+    const prepareResult =
+      shouldPrepare || prepare === 'dry' ? await runPrepare({ dryRun: prepare === 'dry' }) : null;
 
     const autosendResult =
       shouldSend || autosend === 'dry'
@@ -64,10 +83,11 @@ async function handle(request: Request) {
         ? await runFollowUps({ dryRun: followups === 'dry' })
         : null;
 
-    if (autosendResult || followupResult) {
+    if (prepareResult || autosendResult || followupResult) {
       return Response.json({
         ok: true,
         ...result,
+        ...(prepareResult ? { prepare: prepareResult } : {}),
         ...(autosendResult ? { autosend: autosendResult } : {}),
         ...(followupResult ? { followups: followupResult } : {}),
         triggeredByCron: isVercelCron,

@@ -1,11 +1,11 @@
 import { addressLooksLikePerson, findContact, isGenericEmail } from '@/lib/contact';
-import { enrichmentConfigured, findPeopleEmails, resolveDomain } from '@/lib/enrich';
+import { enrichmentConfigured } from '@/lib/enrich';
 import { backfillSequences, followUpCap } from '@/lib/followup';
 import { imapConfigured } from '@/lib/imap';
 import { firstName, isEditedDraft, renderOutreachTemplate } from '@/lib/outreach-template';
-import { isUnresolvableNewsLink, resolveDomainViaSearch } from '@/lib/sources/fundingnews';
+import { isUnresolvableNewsLink } from '@/lib/sources/fundingnews';
 import { draftOutreach } from '@/lib/funding';
-import { MAX_AGE_DAYS } from '@/lib/sources/techcrunch';
+import { runDraftPass, runEnrichPass } from '@/lib/prepare';
 import {
   deleteJob,
   deleteTracked,
@@ -209,83 +209,23 @@ export async function GET(request: Request) {
   // from last year is worse than no draft. `?limit=` bounds one invocation so a slow
   // article fetch can't run past the function timeout; run it again for the next batch.
   if (action === 'prepare-outreach') {
-    // Default 2 because of the 5-req/min Gemini free-tier ceiling described below.
+    // Default 2 because of the 5-req/min Gemini free-tier ceiling described in runDraftPass.
     const limit = Math.min(Number(params.get('limit') ?? 2) || 2, 12);
-    const items = await getRecentFunding(200);
-    const existing = await getFundingOutreaches(items.map((i) => i.id));
+    // No deadline: a human waiting on a curl would rather it finish than yield time to a
+    // sender that is not running here. The cron passes one.
+    const pass = await runDraftPass({ limit });
 
-    const cutoff = Date.now() - MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
-    const stale: string[] = [];
-    const queue = items.filter((i) => {
-      if (i.status !== 'new' || existing.has(i.id)) return false;
-      if (Date.parse(i.postedAt) < cutoff) {
-        stale.push(`${i.company} (${i.postedAt.slice(0, 10)})`);
-        return false;
-      }
-      return true;
-    });
-
-    const batch = queue.slice(0, limit);
-
-    // SEQUENTIAL, not Promise.all. The Gemini free tier allows 5 requests/minute for
-    // gemini-2.5-flash and each row costs 2 calls, so a parallel batch of 5 rows fires 10
-    // calls at once and 3 of them 429 — measured, not theoretical. Running in series keeps
-    // us under the limit, and a 429 stops the batch rather than burning the rest of the
-    // queue against a quota that is already spent.
-    const prepared: Array<{
-      id: string;
-      company: string;
-      angle?: string;
-      subject?: string;
-      text?: string;
-      founders?: string[];
-      emails?: string[];
-      contactNote?: string | null;
-      error: string | null;
-    }> = [];
-    let rateLimited = false;
-
-    for (const item of batch) {
-      try {
-        // Contact first: a named founder makes the draft open "Hi <first> —".
-        const contact = await findContact(item);
-        await saveFundingContact(item.id, contact);
-        const outreach = await draftOutreach(item, contact);
-        await saveFundingOutreach(item.id, outreach);
-        prepared.push({
-          id: item.id,
-          company: item.company,
-          angle: outreach.angle,
-          subject: outreach.subject,
-          text: outreach.text,
-          founders: contact.founders.map((f) => f.name),
-          emails: contact.emails.map((e) => e.address),
-          contactNote: contact.note ?? null,
-          error: null,
-        });
-      } catch (e) {
-        const message = (e as Error).message;
-        prepared.push({ id: item.id, company: item.company, error: message });
-        if (/RESOURCE_EXHAUSTED|\b429\b/.test(message)) {
-          rateLimited = true;
-          break;
-        }
-      }
-    }
-
-    const ok = prepared.filter((p) => !p.error);
-    const attempted = prepared.length;
     return Response.json({
       ok: true,
       sent: 0,
       note: 'drafts + contacts only — nothing was emailed',
-      prepared: ok.length,
-      failed: prepared.filter((p) => p.error),
-      withEmail: ok.filter((p) => (p.emails?.length ?? 0) > 0).length,
-      rateLimited,
-      remaining: Math.max(0, queue.length - attempted),
-      skippedStale: { count: stale.length, maxAgeDays: MAX_AGE_DAYS, items: stale },
-      results: ok,
+      prepared: pass.prepared,
+      failed: pass.failed,
+      withEmail: pass.withEmail,
+      rateLimited: pass.rateLimited,
+      remaining: pass.remaining,
+      skippedStale: pass.skippedStale,
+      results: pass.results,
     });
   }
 
@@ -311,135 +251,21 @@ export async function GET(request: Request) {
     }
 
     const spendBudget = Math.min(Math.max(Number(params.get('spend') ?? 0) || 0, 0), 25);
-    const items = await getRecentFunding(200);
-    const contacts = await getFundingContacts(items.map((i) => i.id));
-
-    // Newest first: a fresher raise is a better cold-outreach target, so if the credit
-    // budget runs out it should run out on the oldest rows.
-    const ordered = [...items].sort((a, b) => Date.parse(b.postedAt) - Date.parse(a.postedAt));
-
-    let domainsFound = 0;
-    let searchResolved = 0;
-    let credited = 0;
-    let peopleFound = 0;
-    const results: Array<Record<string, unknown>> = [];
-    const ambiguous: Array<{ company: string; candidates: string[] }> = [];
-    const errors: string[] = [];
-
-    for (const item of ordered) {
-      if (item.status !== 'new') continue;
-      const existing = contacts.get(item.id);
-      const alreadyHasPerson = (existing?.emails.length ?? 0) > 0 && (existing?.founders.length ?? 0) > 0;
-      if (alreadyHasPerson) continue;
-
-      try {
-        // --- free phase: establish the company's own domain ---
-        // A website already on the row came from a link inside the funding article, so it
-        // has real provenance and always beats a name lookup.
-        let domain = existing?.website?.replace(/^https?:\/\//, '') ?? '';
-        let note = existing?.note;
-        let knownEmails = domain ? 1 : 0; // unknown for article-derived domains; assume worth a look
-
-        if (!domain) {
-          const found = await resolveDomain(item.company);
-
-          if (found.kind === 'resolved') {
-            domain = found.domain;
-            knownEmails = found.emailCount;
-            domainsFound++;
-            if (found.matchedName.toLowerCase() !== item.company.toLowerCase()) {
-              note = `domain resolved from company name — Hunter matched "${found.matchedName}"; confirm it is the right company`;
-            }
-          } else {
-            // Hunter could not decide (or found nothing). A search engine can: it was
-            // 41 of 83 fresh rows stuck on exactly this, and the Serper key is already
-            // paid for. Still no guessing — the searcher requires the domain to relate to
-            // the company name and skips press and directory hosts.
-            const viaSearch = await resolveDomainViaSearch(item.company).catch(() => null);
-            if (viaSearch) {
-              domain = viaSearch;
-              knownEmails = 1; // unknown to Hunter yet; worth one lookup
-              domainsFound++;
-              note = `domain found by web search (${viaSearch})`;
-              searchResolved++;
-            } else if (found.kind === 'ambiguous') {
-              await saveFundingContact(item.id, {
-                id: item.id,
-                founders: existing?.founders ?? [],
-                website: existing?.website,
-                emails: existing?.emails ?? [],
-                socials: existing?.socials ?? [],
-                foundAt: new Date().toISOString(),
-                model: 'hunter.io',
-                note: `domain ambiguous — candidates: ${found.candidates.join(', ')}; pick one by hand`,
-              });
-              ambiguous.push({ company: item.company, candidates: found.candidates });
-              continue;
-            } else {
-              continue;
-            }
-          }
-        }
-
-        let people = existing?.founders ?? [];
-        let emails = existing?.emails ?? [];
-
-        // --- paid phase: bounded, and never spent on a domain with nothing to return ---
-        if (credited < spendBudget && knownEmails > 0) {
-          credited++;
-          const enriched = await findPeopleEmails(domain);
-          if (enriched) {
-            // NEVER replace a founder the ARTICLE named. The funding announcement says who
-            // founded the company; Hunter only ranks by seniority over whoever it has
-            // scraped. On Omilia that swap put "Hi Petr" (an exec) on an email that should
-            // have greeted Dimitris Vassos, the founder the article named. Article-derived
-            // people lead; Hunter's are appended for their addresses.
-            const known = new Set(people.map((p) => p.name.toLowerCase()));
-            people = [...people, ...enriched.people.filter((p) => !known.has(p.name.toLowerCase()))];
-            emails = enriched.emails.length ? enriched.emails : emails;
-            peopleFound += enriched.people.length;
-          }
-        }
-
-        await saveFundingContact(item.id, {
-          id: item.id,
-          founders: people,
-          website: `https://${domain}`,
-          emails,
-          socials: existing?.socials ?? [],
-          foundAt: new Date().toISOString(),
-          model: 'hunter.io',
-          note,
-        });
-
-        results.push({
-          id: item.id,
-          company: item.company,
-          domain,
-          knownEmails,
-          founders: people.map((p) => p.name),
-          emails: emails.map((e) => e.address),
-        });
-      } catch (e) {
-        const msg = (e as Error).message;
-        errors.push(`${item.company}: ${msg}`);
-        // Out of credits or rate-limited: stop rather than hammer the API for every row.
-        if (/\b429\b|credit/i.test(msg)) break;
-      }
-    }
+    // No deadline, same reason as prepare-outreach above.
+    const pass = await runEnrichPass({ spendBudget });
 
     return Response.json({
       ok: true,
       sent: 0,
       note: 'contact enrichment only — nothing was emailed',
-      domainsFound,
-      searchResolved,
-      ambiguousDomains: ambiguous.length,
-      ambiguous,
-      creditsSpent: credited,
-      peopleFound,
-      errors,
-      results,
+      domainsFound: pass.domainsFound,
+      searchResolved: pass.searchResolved,
+      ambiguousDomains: pass.ambiguousDomains,
+      ambiguous: pass.ambiguous,
+      creditsSpent: pass.creditsSpent,
+      peopleFound: pass.peopleFound,
+      errors: pass.errors,
+      results: pass.results,
     });
   }
 
