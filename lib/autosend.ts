@@ -14,7 +14,13 @@ import {
   setAgentRunning,
   updateFundingStatus,
 } from './storage';
-import type { ContactEmail, FundingContact, FundingItem, FundingOutreach } from './types';
+import type {
+  ContactEmail,
+  ContactPerson,
+  FundingContact,
+  FundingItem,
+  FundingOutreach,
+} from './types';
 
 /**
  * Send founder outreach without a human click. User's explicit standing instruction
@@ -46,6 +52,37 @@ const NEVER_SEND_TO = [
   'shivanshchaudhary.iitkgp@gmail.com',
   'hello@lovingroom.co',
 ];
+
+const FOUNDER_TITLE = /\b(co-?founder|founder|ceo|chief executive)\b/i;
+
+/**
+ * Rank the people on a contact so the FOUNDER is picked, not whoever the lookup listed first.
+ *
+ * Three tiers, and the middle one is the careful bit:
+ *   2 — the title says founder or CEO.
+ *   1 — NO title at all. On these rows that means the person came from the funding ARTICLE,
+ *       which names founders; Hunter always attaches a title to the people it returns. The
+ *       standing rule is that an article-named founder is never displaced by a Hunter guess
+ *       (the Omilia "Hi Petr" incident), so an untitled person must outrank a titled
+ *       non-founder — and only an explicit founder/CEO title may outrank them.
+ *   0 — a title that is not founder-ish: Head of X, an engineer, a designer.
+ *
+ * Sort stability keeps the original order inside a tier, so article-derived people, which
+ * `runEnrichPass` puts first, stay ahead of Hunter's within tier 1.
+ */
+function personRank(p: ContactPerson): number {
+  const title = p.title?.trim();
+  if (!title) return 1;
+  return FOUNDER_TITLE.test(title) ? 2 : 0;
+}
+
+/**
+ * The contact's people, most-likely-founder first. Exported so
+ * `scripts/check-founder-rank.mts` pins the ordering without a network call.
+ */
+export function rankPeople(people: ContactPerson[]): ContactPerson[] {
+  return [...people].sort((a, b) => personRank(b) - personRank(a));
+}
 
 /** Does the draft already open by greeting this person's first name? */
 function greetingMatches(text: string, person: string): boolean {
@@ -96,6 +133,8 @@ export type AutoSendCandidate = {
   greeted: string;
   /** False when falling back to an employee, so the report shows which is which. */
   isFounder: boolean;
+  /** The lookup's title for the recipient, surfaced so a dry run can be eyeballed. */
+  title: string | null;
 };
 
 /**
@@ -130,23 +169,43 @@ export async function autoSendCandidates(): Promise<AutoSendCandidate[]> {
     if (usable.length === 0) continue;
 
     // FOUNDER FIRST, employee as fallback (user's instruction 2026-08-09: "put founder on
-    // priority but if cannot find send emails to employee also"). Hunter already ranks
-    // decision-makers and executives ahead of everyone else, so the first usable address is
-    // the most senior person it knows.
-    const founderNames = contact.founders.map((f) => f.name);
-    const founderMatch = usable.find((e) =>
-      founderNames.some((n) => addressLooksLikePerson(e.address, n))
-    );
+    // priority but if cannot find send emails to employee also").
+    //
+    // ⚠️ "Hunter ranks decision-makers first" is NOT true, and this used to trust it. On
+    // Lovable (dry run 2026-08-13) Hunter returned "Olof Halfvarsson, Head of Product
+    // Experience" ahead of "Anton Osika, Co-Founder", and because the old code took the
+    // first ADDRESS matching ANY name in `founders`, the founder test did no work at all:
+    // `contact.founders` on a Hunter-enriched row is simply everyone Hunter knows. It was
+    // one cron from congratulating a Head of Product Experience on his company's raise while
+    // the co-founder's address sat three lines below. Same failure as Omilia's "Hi Petr",
+    // but unattended.
+    //
+    // So match by PERSON in ranked order, not by whichever address happens to come first.
+    const ranked = rankPeople(contact.founders);
+    const founderNames = ranked.map((f) => f.name);
+    let founderMatch: (typeof usable)[number] | undefined;
+    let founderName: string | undefined;
+    for (const name of founderNames) {
+      const hit = usable.find((e) => addressLooksLikePerson(e.address, name));
+      if (hit) {
+        founderMatch = hit;
+        founderName = name;
+        break;
+      }
+    }
     const chosen = founderMatch ?? usable.find((e) => e.person) ?? null;
     if (!chosen) continue;
 
     // Whoever receives it must be who the email greets. That is not a policy choice, it is
     // the difference between "Hi Dimitris" reaching Dimitris and reaching a colleague.
-    const greeted =
-      (founderMatch
-        ? founderNames.find((n) => addressLooksLikePerson(chosen.address, n))
-        : chosen.person) ?? chosen.person;
+    const greeted = (founderMatch ? founderName : chosen.person) ?? chosen.person;
     if (!greeted || !addressLooksLikePerson(chosen.address, greeted)) continue;
+
+    // Whatever title the lookup has for whoever is about to be mailed, carried onto the
+    // candidate so a dry run SHOWS it. "Olof Halfvarsson (Head of Product Experience)" is
+    // something a human spots in a second; `isFounder: true` is not, and on a Hunter-only
+    // row it was not even true.
+    const chosenTitle = contact.founders.find((f) => f.name === greeted)?.title ?? null;
 
     out.push({
       item,
@@ -155,6 +214,7 @@ export async function autoSendCandidates(): Promise<AutoSendCandidate[]> {
       to: chosen.address,
       greeted,
       isFounder: Boolean(founderMatch),
+      title: chosenTitle,
     });
   }
 
@@ -182,7 +242,13 @@ export async function autoSendCandidates(): Promise<AutoSendCandidate[]> {
 export type AutoSendResult = {
   cap: number;
   eligible: number;
-  sent: Array<{ company: string; to: string; greeted?: string; isFounder?: boolean }>;
+  sent: Array<{
+    company: string;
+    to: string;
+    greeted?: string;
+    isFounder?: boolean;
+    title?: string | null;
+  }>;
   failed: Array<{ company: string; to: string; error: string }>;
   dryRun: boolean;
   /**
@@ -220,6 +286,7 @@ export async function runAutoSend(opts: { dryRun?: boolean } = {}): Promise<Auto
       to: c.to,
       greeted: c.greeted,
       isFounder: c.isFounder,
+      title: c.title,
     }));
     return result;
   }
@@ -288,7 +355,13 @@ export async function runAutoSend(opts: { dryRun?: boolean } = {}): Promise<Auto
         sentAt,
         messageId: sent.id,
       });
-      result.sent.push({ company: c.item.company, to: c.to, greeted: c.greeted, isFounder: c.isFounder });
+      result.sent.push({
+        company: c.item.company,
+        to: c.to,
+        greeted: c.greeted,
+        isFounder: c.isFounder,
+        title: c.title,
+      });
     } catch (e) {
       result.failed.push({ company: c.item.company, to: c.to, error: (e as Error).message });
     }
