@@ -1,3 +1,4 @@
+import { isIndiaLocation } from './geo';
 import type { Job } from './types';
 
 // Strict non-tech intern filter. Word-boundary matching so "intern" never matches "internal".
@@ -147,12 +148,43 @@ export const REMOTE_PATTERNS: RegExp[] = [
   /\bwfh\b/i,
 ];
 
+/**
+ * Roles allowed through WITHOUT being remote, when they are in India (user's decision
+ * 2026-08-17: "allow onsite/hybrid if it is a product intern"). Deliberately narrower than
+ * ROLE_PATTERNS — this is the product family only, not the data/AI/SWE/VC functions, which
+ * stay remote-only. Widening it is one line here, but it is the user's call, not a tidy-up.
+ *
+ * `founder's office` was added the same day, on the user's follow-up instruction, after a
+ * single live guest-search run showed the narrow list dropping 16 on-site India rows of which
+ * **11 were Founder's Office** — Zamp, Hevo Data, Snapmint, Emergent, Signzy, Z1 Tech and
+ * friends. The user's own outreach template pitches them as a "generalist / founder's office"
+ * candidate, so those were the best-fit listings in the batch.
+ *
+ * ⚠️ `chief of staff` is deliberately NOT here. It is the obvious sibling and it was not
+ * asked for; one such row (ResultFlow, Bengaluru) is still dropped on-site. One line to add.
+ */
+export const PRODUCT_PATTERNS: RegExp[] = [
+  /\bproduct\b/i,
+  /\bapm\b/i,
+  /\bassociate product\b/i,
+  /\bfounder'?s? office\b/i,
+];
+
 function titleText(j: Job): string {
   return j.title;
 }
 
 function broadText(j: Job): string {
   return [j.title, j.location, j.description ?? '', ...j.tags].join(' ');
+}
+
+/**
+ * Where the listing IS. Not `broadText` on purpose: the description is prose and mentions
+ * cities it is not located in ("we work with teams in Bangalore and London"), and this text
+ * is what admits a non-remote row.
+ */
+function placeText(j: Job): string {
+  return [j.location, ...j.tags].join(' ');
 }
 
 // Both role signals are TITLE-anchored. Matching them against the description instead
@@ -176,7 +208,31 @@ export function isRemote(j: Job): boolean {
   return REMOTE_PATTERNS.some((re) => re.test(broadText(j)));
 }
 
+/** A product-family title, the only kind allowed through on-site. Title-anchored like the rest. */
+export function isProductRole(j: Job): boolean {
+  return PRODUCT_PATTERNS.some((re) => re.test(titleText(j)));
+}
+
+/**
+ * The on-site allowance, added 2026-08-17 on the user's instruction ("allow onsite/hybrid if
+ * it is a product intern").
+ *
+ * Until now the remote gate was absolute, and because it was pushed UPSTREAM into the fetch
+ * (Internshala scraped on work-from-home pages only, every LinkedIn query carrying the word
+ * "remote") it looked cheap in the funnel while quietly deciding what was even looked for.
+ * The good Bangalore and Gurugram internships the user finds by hand were never fetched at
+ * all, let alone filtered out.
+ *
+ * Both halves are load-bearing. Product-only keeps this from becoming "the remote gate is
+ * gone" — data, AI, SWE and VC roles are still remote-only. India-only keeps it from becoming
+ * "on-site anywhere", which would fill the dashboard with US internships nobody here can take.
+ */
+export function isOnsiteAllowed(j: Job): boolean {
+  return isProductRole(j) && isIndiaLocation(placeText(j));
+}
+
 export function passes(j: Job): boolean {
   if (isHardRejected(j)) return false;
-  return isIntern(j) && isProductOrOps(j) && isRemote(j);
+  if (!isIntern(j) || !isProductOrOps(j)) return false;
+  return isRemote(j) || isOnsiteAllowed(j);
 }

@@ -3,9 +3,11 @@ import { fetchWeWorkRemotely } from './sources/wwr';
 import { fetchHnWhoIsHiring } from './sources/hn';
 import { fetchInternshala } from './sources/internshala';
 import { fetchLinkedInViaSerper } from './sources/linkedin';
+import { fetchLinkedInGuest } from './sources/linkedin-guest';
 import { fetchUnstop } from './sources/unstop';
 import { fetchYc } from './sources/yc';
 import { fetchLinkedInPostsViaApify } from './sources/apify';
+import { fetchLinkedInPostSearch } from './sources/apify-posts';
 import { fetchTelegramChannels } from './sources/telegram';
 import { fetchHimalayas, fetchRemotive, fetchJobicy } from './sources/boards';
 import { fetchViaFirecrawl } from './sources/firecrawl';
@@ -30,6 +32,21 @@ async function safe<T>(label: string, fn: () => Promise<T>, errors: string[]): P
   }
 }
 
+/**
+ * Comment mining and post search are BOTH Apify, both bill $0.002 an item, and the free plan
+ * is $5 a month — measured 2026-08-17 with $3.56 of it already spent. Running both would
+ * empty the plan inside a week and then fail as "no new matches", which is the worst possible
+ * way for a source to die.
+ *
+ * So post search (lib/sources/apify-posts.ts) takes the budget by default and the comment
+ * miner stands down: it is the same money for a hiring post instead of a comment that might
+ * lead to one, and on 2026-08-17 the comment miner's entire daily yield was 2 posts.
+ * `APIFY_MINE_COMMENTS=true` runs both — only worth it on a paid Apify plan.
+ */
+function mineComments(): boolean {
+  return /^(1|true|yes)$/i.test(process.env.APIFY_MINE_COMMENTS ?? '');
+}
+
 export async function runDiscovery(opts: { notify?: boolean } = {}): Promise<DiscoverResult> {
   const errors: string[] = [];
   await setAgentRunning('discover');
@@ -42,9 +59,11 @@ export async function runDiscovery(opts: { notify?: boolean } = {}): Promise<Dis
       safe('hn', fetchHnWhoIsHiring, errors),
       safe('internshala', fetchInternshala, errors),
       safe('linkedin', fetchLinkedInViaSerper, errors),
+      safe('linkedin-guest', fetchLinkedInGuest, errors),
       safe('unstop', fetchUnstop, errors),
       safe('yc', fetchYc, errors),
-      safe('apify', fetchLinkedInPostsViaApify, errors),
+      safe('apify-posts', fetchLinkedInPostSearch, errors),
+      mineComments() ? safe('apify', fetchLinkedInPostsViaApify, errors) : Promise.resolve([]),
       safe('tgchannel', fetchTelegramChannels, errors),
       safe('himalayas', fetchHimalayas, errors),
       safe('remotive', fetchRemotive, errors),

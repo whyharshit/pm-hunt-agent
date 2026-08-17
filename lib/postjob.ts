@@ -14,6 +14,24 @@ import { HARD_REJECT_TITLE_PATTERNS, INTERN_PATTERNS, ROLE_PATTERNS } from './fi
 /** A dashboard row needs a headline, not a paragraph. */
 const MAX_TITLE_CHARS = 110;
 
+/**
+ * Tag prefix carrying the HUMAN who wrote a free-text post, e.g. `poster:Aayush Jain`.
+ *
+ * A post has no company field, so `Job.company` gets the author's name — which for a personal
+ * LinkedIn profile is a person, not a company. Outreach needs to know the difference: it is
+ * the name the email greets, and greeting a company name ("Hi Thinkingworld,") is worse than
+ * not sending. Tagging it keeps that fact attached to the row instead of being re-guessed
+ * later from a name that could be either.
+ */
+export const POSTER_TAG = 'poster:';
+
+/** `poster:` tag for a personal author, or null for a company page (nobody to greet). */
+export function posterTag(name: string | undefined, authorType: string | undefined): string | null {
+  const clean = name?.trim();
+  if (!clean || authorType === 'company') return null;
+  return `${POSTER_TAG}${clean}`;
+}
+
 export const isInternText = (s: string) => INTERN_PATTERNS.some((re) => re.test(s));
 export const isRoleText = (s: string) => ROLE_PATTERNS.some((re) => re.test(s));
 export const isRejectedText = (s: string) => HARD_REJECT_TITLE_PATTERNS.some((re) => re.test(s));

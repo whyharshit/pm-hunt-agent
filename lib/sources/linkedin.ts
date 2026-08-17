@@ -24,6 +24,16 @@ const ENDPOINT = 'https://google.serper.dev/search';
 // results), and the /jobs/view/<id> match below discards everything that is not one, so the
 // looser query costs no precision. If Serper is ever upgraded to a paid plan, `site:` works
 // and is worth restoring.
+//
+// ⚠️ THE `remote` TOKEN IS NOT FREE. Every query below used to end in it, and Google obliged
+// by returning US remote postings — measured 2026-08-17, 27 rows of which most were American
+// (Amtrak, TikTok, US private equity) despite `gl: 'in'`. The India queries added that day
+// exist because on-site product internships in India now pass the filters (see
+// `isOnsiteAllowed` in lib/filters.ts), and no query here was asking for one.
+//
+// For structured Indian rows prefer lib/sources/linkedin-guest.ts, which asks LinkedIn
+// directly and always knows the company. This source stays because Google indexes postings
+// that the guest search does not surface, and the two share an id space so overlap collapses.
 const QUERIES = [
   'linkedin.com/jobs/view internship product management strategy operations remote',
   'linkedin.com/jobs/view internship data analyst analytics remote',
@@ -32,16 +42,29 @@ const QUERIES = [
   // Software engineering (2026-08-09), closing the same gap as the Internshala categories:
   // SWE became a target function on 2026-08-07 with no source ever pointed at it.
   'linkedin.com/jobs/view internship software engineer developer remote',
+  // India (2026-08-17). Cities rather than the bare word "India": Google treats a city as a
+  // strong locality signal where a country name mostly reorders the same global results.
+  'linkedin.com/jobs/view product management internship bangalore india',
+  'linkedin.com/jobs/view product internship gurgaon mumbai hyderabad',
+  'linkedin.com/jobs/view associate product manager intern india',
 ];
 
 type SerperOrganic = { title?: string; link?: string; snippet?: string };
 
-/** "Acme hiring Product Intern in Bengaluru, India | LinkedIn" → its three parts. */
+/**
+ * "Acme hiring Product Intern in Bengaluru, India | LinkedIn" → its three parts.
+ *
+ * ⚠️ An unparseable title yields an EMPTY location, never "Remote". It used to claim Remote,
+ * which was a guess dressed as a fact — and since 2026-08-17 it is a consequential one: a
+ * row labelled Remote enters `passes()` through the remote branch and skips the India +
+ * product-only conditions the on-site allowance is deliberately narrowed by. Google's snippet
+ * rides along in `description`, so a genuinely remote posting still says so and still matches.
+ */
 function parseResultTitle(raw: string): { company: string; title: string; location: string } {
   const cleaned = raw.replace(/\s*\|\s*LinkedIn\s*$/i, '').trim();
   const m = cleaned.match(/^(.*?)\s+hiring\s+(.*?)(?:\s+in\s+(.+))?$/i);
-  if (!m) return { company: 'Unknown', title: cleaned, location: 'Remote' };
-  return { company: m[1].trim(), title: m[2].trim(), location: (m[3] ?? 'Remote').trim() };
+  if (!m) return { company: 'Unknown', title: cleaned, location: '' };
+  return { company: m[1].trim(), title: m[2].trim(), location: (m[3] ?? '').trim() };
 }
 
 /** Search Google for LinkedIn job posts via serper.dev. Returns [] when no key is set. */

@@ -1,4 +1,4 @@
-import { headline, titleSurvives } from '../postjob';
+import { headline, posterTag, titleSurvives } from '../postjob';
 import { matchWhatsappPost } from '../whatsapp/match';
 import type { Job } from '../types';
 
@@ -104,7 +104,13 @@ export async function fetchLinkedInPostsViaApify(): Promise<Job[]> {
       url,
       ...(applyUrl ? { applyUrl } : {}),
       postedAt: item.createdAt ? new Date(item.createdAt) : new Date(),
-      tags: [post?.author?.info, ...m.emails].filter((t): t is string => Boolean(t)),
+      // The poster's name rides in a tag so lib/job-contact.ts knows who the draft greets;
+      // `company` holds it too, but there it is indistinguishable from an actual company name.
+      tags: [
+        posterTag(post?.author?.name, undefined),
+        post?.author?.info,
+        ...m.emails,
+      ].filter((t): t is string => Boolean(t)),
       description: content.slice(0, 600),
     });
   }
