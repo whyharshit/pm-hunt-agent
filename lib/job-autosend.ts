@@ -310,7 +310,12 @@ export async function runJobAutoSend(opts: { dryRun?: boolean } = {}): Promise<J
         kind: 'job',
         company: c.job.company,
         to: c.to,
-        greeted: c.greeted,
+        // ⚠️ 'team', not '', on a team draft. `runFollowUps` refuses to bump a sequence with
+        // an empty `greeted` — rightly, since it would open "Hi ," — so passing the empty
+        // string here would strand every shared-inbox send with no follow-ups at all, and
+        // report it as a failure three days later. "team" is also literally what the email
+        // opened with, which is what a follow-up has to match.
+        greeted: c.greeting === 'team' ? 'team' : c.greeted,
         subject: draft.subject,
         sentAt,
         messageId: sent.id,

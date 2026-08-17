@@ -42,6 +42,7 @@ import {
   renderOutreachTemplate,
 } from './outreach-template';
 import { renderJobOutreach } from './job-outreach-template';
+import { runJobAutoSend } from './job-autosend';
 import { runJobPrepare } from './job-prepare';
 import { ingestHiringPost } from './paste';
 import { closeSequence, greetedIn, recordInitialSend } from './sequence';
@@ -261,6 +262,28 @@ export async function runJobPreparePass(): Promise<void> {
     // action, which would render an error boundary over the whole list.
   }
   revalidatePath('/jobs');
+}
+
+/**
+ * Send the eligible job applications now, instead of waiting for tomorrow's cron.
+ *
+ * Calls `runJobAutoSend` itself — the same function the cron calls, with the same gates, the
+ * same cap and the same pacing. It is emphatically NOT a second sending path: a button that
+ * re-implemented "send everything eligible" would be a second definition of eligible, and the
+ * whole point of the gates is that there is exactly one.
+ *
+ * Bounded by `JOB_SEND_MAX_PER_DAY` like any other run, so pressing it twice does not send
+ * twice as much on top of the cron's own batch — the rows it sent are marked `contacted` and
+ * drop out of the queue.
+ */
+export async function sendEligibleJobs(): Promise<void> {
+  try {
+    await runJobAutoSend();
+  } catch {
+    // run-state already recorded as 'error' by the sender; the agent card surfaces it
+  }
+  revalidatePath('/jobs');
+  revalidatePath('/');
 }
 
 export type PasteState = { ok: boolean; message: string };

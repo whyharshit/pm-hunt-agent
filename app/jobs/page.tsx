@@ -7,7 +7,7 @@ import { isHiringInbox } from '@/lib/job-contact';
 import { hasHumanPoster } from '@/lib/job-prepare';
 import { DeleteButton } from '../delete-button';
 import { Nav } from '../nav';
-import { PrepareJobsButton } from '../prepare-jobs-button';
+import { PrepareJobsButton, SendEligibleJobsButton } from '../prepare-jobs-button';
 import { SendJobButton } from '../send-job-button';
 import type { Job, JobContact, JobOutreach } from '@/lib/types';
 
@@ -187,6 +187,9 @@ export default async function JobsPage({
             anyone — see runJobPreparePass in lib/actions.ts. */}
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950">
           <PrepareJobsButton />
+          {wouldSend.size > 0 && cap > 0 && (
+            <SendEligibleJobsButton count={Math.min(cap, wouldSend.size)} />
+          )}
           <span className="text-xs text-zinc-600 dark:text-zinc-400">
             {wouldSend.size === 0 ? (
               <>

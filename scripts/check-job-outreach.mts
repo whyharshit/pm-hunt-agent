@@ -25,8 +25,9 @@ import {
 } from '../lib/job-outreach-template';
 import { contactFromJob, isHiringInbox } from '../lib/job-contact';
 import { hasHumanPoster } from '../lib/job-prepare';
+import { renderFollowUp } from '../lib/followup-template';
 import { POSTER_TAG } from '../lib/postjob';
-import type { Job, JobContact } from '../lib/types';
+import type { Job, JobContact, OutreachSequence } from '../lib/types';
 
 let failures = 0;
 const check = (ok: boolean, label: string, detail = '') => {
@@ -173,6 +174,37 @@ check(
   'an engineering role does not say "product team"'
 );
 check(teamPhrase('Chief of Staff') === 'the team', 'an unknown function falls back to "the team"');
+
+console.log('\n--- follow-ups: job sequences get job copy, and team sends get followed up ---');
+const seq = (over: Partial<OutreachSequence> = {}): OutreachSequence => ({
+  id: 'j1',
+  kind: 'job',
+  company: 'Kily',
+  to: 'sharad@kily.com',
+  greeted: 'Sharad',
+  subject: 'Saw your LinkedIn post, Shivansh from IIT KGP :)',
+  sends: [],
+  step: 0,
+  state: 'active',
+  ...over,
+});
+for (const step of [1, 2, 3] as const) {
+  const f = renderFollowUp(seq(), step);
+  check(!/raise|funding|congratulations/i.test(f.text), `follow-up ${step} says nothing about a raise`);
+  check(!/[—–]/.test(f.text), `follow-up ${step} has no em or en dashes`);
+}
+check(
+  /congratulations again on the raise/i.test(renderFollowUp(seq({ kind: undefined }), 3).text),
+  'a sequence with no kind still gets the FOUNDER copy',
+  'every sequence written before job outreach existed is founder outreach'
+);
+// The bug this pins: runJobAutoSend used to pass greeted:'' for a team draft, and
+// runFollowUps refuses an empty greeted, so every shared-inbox send was stranded with no
+// follow-ups and reported as a failure three days later.
+check(
+  renderFollowUp(seq({ greeted: 'team' }), 1).text.startsWith('Hi team,'),
+  'a team sequence follows up with "Hi team,"'
+);
 
 console.log('\n--- outreach targeting: portals have no poster to email ---');
 check(!hasHumanPoster(job({ source: 'internshala' })), 'Internshala is apply-on-the-site');
