@@ -2,8 +2,11 @@ import { getJobContacts, getJobOutreaches, getRecentJobs } from '@/lib/storage';
 import { deleteJobRow } from '@/lib/actions';
 import { fmtDate } from '@/lib/format';
 import { isGenericEmail } from '@/lib/contact';
+import { jobSendCandidates, jobSendCap } from '@/lib/job-autosend';
 import { DeleteButton } from '../delete-button';
 import { Nav } from '../nav';
+import { PrepareJobsButton } from '../prepare-jobs-button';
+import { SendJobButton } from '../send-job-button';
 import type { Job, JobContact, JobOutreach } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -17,7 +20,18 @@ export const dynamic = 'force-dynamic';
  * that the expensive way when five drafts greeting founders by name were queued to shared
  * inboxes.
  */
-function OutreachLine({ contact, draft }: { contact?: JobContact; draft?: JobOutreach }) {
+function OutreachLine({
+  job,
+  contact,
+  draft,
+  wouldSendTo,
+}: {
+  job: Job;
+  contact?: JobContact;
+  draft?: JobOutreach;
+  /** Set when the unattended sender would pick this row, to this address. */
+  wouldSendTo?: string;
+}) {
   if (draft?.sentAt) {
     return (
       <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">
@@ -29,11 +43,28 @@ function OutreachLine({ contact, draft }: { contact?: JobContact; draft?: JobOut
   const person = contact?.emails.find((e) => e.person && !isGenericEmail(e.address));
   if (person) {
     return (
-      <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-        ✉ {person.person} · {person.address}{' '}
-        <span className="text-zinc-400 dark:text-zinc-500">({person.foundOn})</span>
-        {draft ? '' : ' · no draft yet'}
-      </p>
+      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+        <span>
+          ✉ {person.person} · {person.address}{' '}
+          <span className="text-zinc-400 dark:text-zinc-500">({person.foundOn})</span>
+          {draft ? '' : ' · no draft yet'}
+        </span>
+        {wouldSendTo && (
+          <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+            would be mailed
+          </span>
+        )}
+        {/* Sending by hand from here as well as from /paste: with the cap at 0 this is the
+            only way a reviewed row goes out, and reviewing one row at a time is the point. */}
+        {draft && wouldSendTo && (
+          <SendJobButton
+            id={job.id}
+            to={wouldSendTo}
+            greeted={person.person ?? ''}
+            company={job.company}
+          />
+        )}
+      </div>
     );
   }
 
@@ -68,11 +99,24 @@ export default async function JobsPage({
   let jobs: Job[] = [];
   let contacts = new Map<string, JobContact>();
   let drafts = new Map<string, JobOutreach>();
+  // What the unattended sender WOULD do, computed here rather than curled. `jobSendCandidates`
+  // is read-only and is the very same function the cron uses, so this page cannot drift from
+  // the sender's real decision the way a re-implemented preview would.
+  let wouldSend = new Map<string, string>();
+  let cap = 0;
   let error: string | null = null;
   try {
     jobs = await getRecentJobs(300);
     const ids = jobs.map((j) => j.id);
-    [contacts, drafts] = await Promise.all([getJobContacts(ids), getJobOutreaches(ids)]);
+    const [c, d, sendable] = await Promise.all([
+      getJobContacts(ids),
+      getJobOutreaches(ids),
+      jobSendCandidates(),
+    ]);
+    contacts = c;
+    drafts = d;
+    cap = jobSendCap();
+    wouldSend = new Map(sendable.candidates.map((x) => [x.job.id, x.to]));
   } catch (e) {
     error = (e as Error).message;
   }
@@ -106,10 +150,39 @@ export default async function JobsPage({
         <p className="mb-1 text-xs text-zinc-500 dark:text-zinc-400">
           Matched by the daily Discover cron. Remote anywhere, plus on-site product roles in India.
         </p>
-        <p className="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
+        <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
           <span className="font-medium text-zinc-700 dark:text-zinc-300">{sent} applied</span> ·{' '}
           {reachable} reachable by name · {sharedOnly} shared inbox only (a person has to send those)
         </p>
+
+        {/* The dry run, on the page. The curl switches need Bearer CRON_SECRET, and this
+            project's Vercel has sensitive env vars on, so that value cannot be read back by
+            anyone — see runJobPreparePass in lib/actions.ts. */}
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950">
+          <PrepareJobsButton />
+          <span className="text-xs text-zinc-600 dark:text-zinc-400">
+            {wouldSend.size === 0 ? (
+              <>
+                Nothing is sendable yet. Press this to find who posted each role and write the
+                drafts. It does not send.
+              </>
+            ) : (
+              <>
+                <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                  {wouldSend.size} would be mailed
+                </span>{' '}
+                {cap === 0 ? (
+                  <span className="text-amber-700 dark:text-amber-500">
+                    — but sending is OFF (JOB_SEND_MAX_PER_DAY=0). Raise it to let the cron send,
+                    or press Send on a row.
+                  </span>
+                ) : (
+                  <>— the cron sends the newest {Math.min(cap, wouldSend.size)} of them each morning.</>
+                )}
+              </>
+            )}
+          </span>
+        </div>
 
         {error && (
           <p className="mb-4 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
@@ -168,7 +241,12 @@ export default async function JobsPage({
                   </span>
                   <DeleteButton id={j.id} action={deleteJobRow} what={`“${j.title}”`} />
                 </div>
-                <OutreachLine contact={contacts.get(j.id)} draft={drafts.get(j.id)} />
+                <OutreachLine
+                  job={j}
+                  contact={contacts.get(j.id)}
+                  draft={drafts.get(j.id)}
+                  wouldSendTo={wouldSend.get(j.id)}
+                />
               </li>
             ))}
           </ul>

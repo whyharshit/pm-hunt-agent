@@ -42,6 +42,7 @@ import {
   renderOutreachTemplate,
 } from './outreach-template';
 import { renderJobOutreach } from './job-outreach-template';
+import { runJobPrepare } from './job-prepare';
 import { ingestHiringPost } from './paste';
 import { closeSequence, greetedIn, recordInitialSend } from './sequence';
 import type { FundingContact, FundingItem, JobContact, TrackedUrl, WhatsappLead } from './types';
@@ -232,6 +233,31 @@ export async function deleteJobRow(formData: FormData): Promise<void> {
   await deleteJob(id);
   revalidatePath('/jobs');
   revalidatePath('/');
+}
+
+/**
+ * Run the job contact-and-draft pass from the dashboard.
+ *
+ * ⚠️ THIS EXISTS BECAUSE THE CURL SWITCHES ARE UNREACHABLE. Every documented rehearsal in this
+ * project (`?jobs=dry`, `?autosend=dry`, `?action=enrich`) needs `Bearer CRON_SECRET`, and on
+ * 2026-08-18 that turned out to be impossible to obtain: the Vercel project has sensitive
+ * environment variables switched on, so all 24 real secrets read back as `[SENSITIVE]` from
+ * both the CLI and the dashboard. Nobody can recover the value, not even the account owner.
+ *
+ * So the one pass that has to run before anything is sendable now has a button. It writes
+ * contacts and drafts; it does NOT send. Once it has run, `/jobs` shows exactly who the
+ * unattended sender would write to, which is the thing the dry run was for.
+ *
+ * It spends up to `JOB_ENRICH_CREDITS_PER_RUN` Hunter credits (default 1), same as the cron.
+ */
+export async function runJobPreparePass(): Promise<void> {
+  try {
+    await runJobPrepare();
+  } catch {
+    // Surfaced on the page by the absence of new contacts rather than by throwing into the
+    // action, which would render an error boundary over the whole list.
+  }
+  revalidatePath('/jobs');
 }
 
 export type PasteState = { ok: boolean; message: string };
