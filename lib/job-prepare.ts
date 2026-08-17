@@ -106,6 +106,8 @@ export type JobPrepareResult = {
   /** Rows with an address but nobody to greet, so no draft could be written. */
   noPerson: number;
   skippedStale: number;
+  /** Portal listings (Internshala, Unstop, the remote boards) with no published address. */
+  skippedPortal: number;
   errors: string[];
   timedOut: boolean;
   dryRun: boolean;
@@ -113,6 +115,42 @@ export type JobPrepareResult = {
 };
 
 const expired = (deadline: number) => Date.now() > deadline;
+
+/**
+ * Sources where you apply THROUGH THE SITE, so there is no poster to write to.
+ *
+ * ⚠️ THIS IS THE MOST IMPORTANT LINE IN THE FILE, and it was learned the expensive way. The
+ * first real runs produced 4 contacts across ~300 rows, and the reason was not the lookup: the
+ * queue is ~85% Internshala and Unstop, which are portals. An Internshala listing has an Apply
+ * button and a per-role written question; there is no recruiter address anywhere in it, the
+ * "company" is frequently a two-person outfit Hunter has never heard of, and cold-emailing
+ * them about a listing they posted to a portal is a worse move than simply applying on the
+ * portal. Every credit those rows consumed was a credit not spent on a LinkedIn post written
+ * by a named human who asked to be contacted.
+ *
+ * So they are dropped from this queue entirely — not deprioritised. Left in, they still cost
+ * a free Hunter domain call each and eat the wall-clock budget ahead of rows that can convert.
+ * They remain on /jobs to be applied to by hand, which is the right action for them.
+ *
+ * A row from one of these sources IS kept if the post itself carries an address, because then
+ * somebody did publish a way to reach them.
+ */
+export const PORTAL_SOURCES = new Set<Job['source']>([
+  'internshala',
+  'unstop',
+  'remoteok',
+  'wwr',
+  'himalayas',
+  'remotive',
+  'jobicy',
+  'waas',
+  'yc',
+]);
+
+/** Is there plausibly a human behind this row to email? */
+export function hasHumanPoster(job: Job): boolean {
+  return !PORTAL_SOURCES.has(job.source);
+}
 
 function isNew(job: Job): boolean {
   // Absent status means a row stored before job outreach existed. Those are the backlog and
@@ -149,6 +187,7 @@ export async function runJobPrepare(
     sendable: 0,
     noPerson: 0,
     skippedStale: 0,
+    skippedPortal: 0,
     errors: [],
     timedOut: false,
     dryRun: opts.dryRun ?? false,
@@ -171,6 +210,13 @@ export async function runJobPrepare(
     if (drafts.get(j.id)?.sentAt) return false;
     if (+new Date(j.postedAt) < cutoff) {
       result.skippedStale += 1;
+      return false;
+    }
+    // A portal listing with no published address has nobody to write to. Counted, not silent,
+    // because "0 contacts found" and "0 contacts found, 240 of these are Internshala rows you
+    // apply to on the site" are completely different reports.
+    if (!hasHumanPoster(j) && !hasPostAddress(j)) {
+      result.skippedPortal += 1;
       return false;
     }
     return true;

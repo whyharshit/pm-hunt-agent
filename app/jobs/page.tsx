@@ -3,6 +3,7 @@ import { deleteJobRow } from '@/lib/actions';
 import { fmtDate } from '@/lib/format';
 import { isGenericEmail } from '@/lib/contact';
 import { jobSendCandidates, jobSendCap } from '@/lib/job-autosend';
+import { hasHumanPoster } from '@/lib/job-prepare';
 import { DeleteButton } from '../delete-button';
 import { Nav } from '../nav';
 import { PrepareJobsButton } from '../prepare-jobs-button';
@@ -141,6 +142,8 @@ export default async function JobsPage({
     const emails = contacts.get(j.id)?.emails ?? [];
     return emails.length > 0 && emails.every((e) => isGenericEmail(e.address));
   }).length;
+  const emailable = jobs.filter(hasHumanPoster).length;
+  const portal = jobs.length - emailable;
 
   const bySource = new Map<string, number>();
   for (const j of jobs) bySource.set(j.source, (bySource.get(j.source) ?? 0) + 1);
@@ -162,6 +165,14 @@ export default async function JobsPage({
         <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
           <span className="font-medium text-zinc-700 dark:text-zinc-300">{sent} applied</span> ·{' '}
           {reachable} reachable by name · {sharedOnly} shared inbox only (a person has to send those)
+        </p>
+        {/* The single most clarifying number on this page. Most rows are portal listings with
+            no poster to email, and without saying so "0 applied" reads as a broken pipeline
+            rather than as a queue that is mostly apply-on-the-site work. */}
+        <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+          {portal} of {jobs.length} are apply-on-the-site listings (Internshala, Unstop, the remote
+          boards). No email exists for those, so outreach skips them. {emailable} have a poster
+          who can be written to.
         </p>
 
         {/* The dry run, on the page. The curl switches need Bearer CRON_SECRET, and this

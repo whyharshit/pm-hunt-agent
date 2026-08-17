@@ -18,6 +18,7 @@
 import { isOnsiteAllowed, passes } from '../lib/filters';
 import { renderJobOutreach, rolePhrase, teamPhrase } from '../lib/job-outreach-template';
 import { contactFromJob, isHiringInbox } from '../lib/job-contact';
+import { hasHumanPoster } from '../lib/job-prepare';
 import { POSTER_TAG } from '../lib/postjob';
 import type { Job, JobContact } from '../lib/types';
 
@@ -122,6 +123,13 @@ check(
   'an engineering role does not say "product team"'
 );
 check(teamPhrase('Chief of Staff') === 'the team', 'an unknown function falls back to "the team"');
+
+console.log('\n--- outreach targeting: portals have no poster to email ---');
+check(!hasHumanPoster(job({ source: 'internshala' })), 'Internshala is apply-on-the-site');
+check(!hasHumanPoster(job({ source: 'unstop' })), 'Unstop is apply-on-the-site');
+check(hasHumanPoster(job({ source: 'linkedin' })), 'a LinkedIn posting has a poster');
+check(hasHumanPoster(job({ source: 'apify' })), 'a LinkedIn feed post has a poster');
+check(hasHumanPoster(job({ source: 'paste' })), 'a pasted post has a poster');
 
 console.log('\n--- contact: reading the address out of the post ---');
 const posted = contactFromJob(
