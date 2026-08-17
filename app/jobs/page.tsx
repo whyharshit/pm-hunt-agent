@@ -12,6 +12,15 @@ import type { Job, JobContact, JobOutreach } from '@/lib/types';
 export const dynamic = 'force-dynamic';
 
 /**
+ * ⚠️ REQUIRED, and it is not about rendering. The "Find contacts & draft" server action runs
+ * on this route, and its pass budgets 45s of Hunter and network calls. Without this export the
+ * action inherits Vercel's default function timeout, which is shorter — so it is killed
+ * part-way through with no error surfaced, and the page just quietly shows fewer contacts than
+ * it should. That looks exactly like "the lookup found nothing", which is the wrong diagnosis.
+ */
+export const maxDuration = 60;
+
+/**
  * The outreach state of one row, in one line.
  *
  * Provenance is printed, not just the address. Before this project mails a stranger a human

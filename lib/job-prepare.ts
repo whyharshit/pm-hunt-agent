@@ -36,8 +36,17 @@ const JOB_WINDOW = 200;
  */
 const MAX_JOB_AGE_DAYS = 21;
 
-/** Wall-clock ceiling. Shares the funding invocation, so it is small by design. */
+/**
+ * Wall-clock ceiling, and there are two because the two callers have very different room.
+ *
+ * The cron shares one 300s invocation with the funding scan, the founder sends and an IMAP
+ * session, so it takes a small slice. The dashboard button owns its whole request and is a
+ * human waiting on a spinner, so it gets most of a 60s function (`maxDuration` on
+ * app/jobs/page.tsx — without that export the action runs under Vercel's default, which is
+ * SHORTER than this budget, and the pass is killed part-way through with no error).
+ */
 const PREPARE_BUDGET_MS = 20_000;
+const MANUAL_BUDGET_MS = 45_000;
 
 /**
  * Hunter credits one job pass may spend. Cap AND kill switch: **0 = off**.
@@ -59,6 +68,23 @@ export function jobEnrichSpendPerRun(): number {
  * Default 25, far above the funding pipeline's 3, because a job draft costs nothing to
  * produce. The real ceiling is the wall clock, and `timedOut` reports when that is what bit.
  */
+/**
+ * Hunter credits ONE PRESS of the dashboard button may spend. Default 5, against a measured
+ * pool of 80 left of 100 on 2026-08-18.
+ *
+ * Higher than the cron's 1 on purpose, and the precedent is `?action=enrich&spend=N` on the
+ * funding side: a scheduled run must sip at a monthly pool because nobody is watching, while
+ * a human pressing a button has decided this batch is worth paying for and is looking at the
+ * result. Rows whose paid lookup is already settled are skipped for free, so pressing twice
+ * advances into new rows instead of re-buying the same ones.
+ */
+export function manualSpend(): number {
+  const raw = process.env.JOB_ENRICH_CREDITS_PER_CLICK;
+  if (raw === undefined || raw.trim() === '') return 5;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+}
+
 export function jobDraftLimitPerRun(): number {
   const raw = process.env.JOB_PREPARE_MAX_PER_RUN;
   if (raw === undefined || raw.trim() === '') return 25;
@@ -100,8 +126,18 @@ function isNew(job: Job): boolean {
  * NOTHING HERE SENDS. It writes contacts and drafts; lib/job-autosend.ts decides what leaves
  * the building, and its gates are the safeguard.
  */
-export async function runJobPrepare(opts: { dryRun?: boolean } = {}): Promise<JobPrepareResult> {
-  const credits = jobEnrichSpendPerRun();
+export async function runJobPrepare(
+  opts: {
+    dryRun?: boolean;
+    /**
+     * A human pressed the button rather than a cron firing. Spends more (a person asking is
+     * the same signal `?action=enrich&spend=N` treats as licence on the funding side) and
+     * takes the larger time slice, because nothing else is sharing this invocation.
+     */
+    manual?: boolean;
+  } = {}
+): Promise<JobPrepareResult> {
+  const credits = opts.manual ? manualSpend() : jobEnrichSpendPerRun();
   const draftLimit = jobDraftLimitPerRun();
 
   const result: JobPrepareResult = {
@@ -124,7 +160,7 @@ export async function runJobPrepare(opts: { dryRun?: boolean } = {}): Promise<Jo
   }
   if (draftLimit === 0) return result;
 
-  const deadline = Date.now() + PREPARE_BUDGET_MS;
+  const deadline = Date.now() + (opts.manual ? MANUAL_BUDGET_MS : PREPARE_BUDGET_MS);
   const jobs = await getRecentJobs(JOB_WINDOW);
   const ids = jobs.map((j) => j.id);
   const [contacts, drafts] = await Promise.all([getJobContacts(ids), getJobOutreaches(ids)]);

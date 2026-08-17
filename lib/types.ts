@@ -239,6 +239,18 @@ export type JobContact = {
   model: string;
   /** Why a lookup came back thin, shown on the dashboard row. */
   note?: string;
+  /**
+   * When the PAID Hunter lookup was settled for this row — either run, or established as
+   * pointless because Hunter knows zero addresses on the domain. Presence means never pay
+   * for this row again.
+   *
+   * ⚠️ Load-bearing against a credit leak. The paid lookup often comes back empty (small
+   * Indian startups are thinly covered), and an empty result leaves the row looking exactly
+   * like one that was never tried — so every subsequent pass would pay for the same domain
+   * again. Harmless at 1 credit a day on a cron; not harmless behind a dashboard button a
+   * human can press ten times against a pool of 100 a month.
+   */
+  hunterCheckedAt?: string;
 };
 
 /** The drafted application email for a job row. Mirrors FundingOutreach; see lib/job-outreach-template.ts. */

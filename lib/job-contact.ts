@@ -113,6 +113,13 @@ export async function enrichJobContact(
   const hasPerson = base?.emails.some((e) => e.person) ?? false;
   if (hasPerson) return { contact: base, creditsSpent: 0, note: null };
 
+  // Already paid for this domain once. Hunter's answer does not change between two presses of
+  // a button, and an empty answer is indistinguishable from "never tried" without this flag,
+  // so without it every later pass buys the same nothing again.
+  if (base?.hunterCheckedAt) {
+    return { contact: base, creditsSpent: 0, note: 'Hunter already searched this domain' };
+  }
+
   const company = job.company.trim();
   if (!company || company.toLowerCase() === 'unknown') {
     return {
@@ -165,6 +172,11 @@ export async function enrichJobContact(
         website: `https://${domain}`,
         foundAt: new Date().toISOString(),
         model: base?.model ?? 'hunter.io',
+        // A domain Hunter knows ZERO addresses for is settled: the paid search cannot return
+        // anything. Stamping it here is what stops the next pass paying to find that out —
+        // on the pass after this one `domain` comes back off `website`, and the "assume worth
+        // a look" default would otherwise make it look like a fresh candidate forever.
+        ...(knownEmails === 0 ? { hunterCheckedAt: new Date().toISOString() } : {}),
         ...(note ? { note } : base?.note ? { note: base.note } : {}),
       },
       creditsSpent: 0,
@@ -191,7 +203,10 @@ export async function enrichJobContact(
       website: `https://${domain}`,
       foundAt: new Date().toISOString(),
       model: 'hunter.io',
-      ...(note ? { note } : {}),
+      // Stamped whatever the result was. An empty answer is exactly the case that must not be
+      // paid for twice, so this cannot be conditional on `enriched`.
+      hunterCheckedAt: new Date().toISOString(),
+      ...(note ? { note } : enriched ? {} : { note: 'Hunter knows nobody on that domain' }),
     },
     creditsSpent: 1,
     note: enriched ? null : 'Hunter returned nobody on that domain',

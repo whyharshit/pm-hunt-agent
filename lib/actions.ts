@@ -248,11 +248,14 @@ export async function deleteJobRow(formData: FormData): Promise<void> {
  * contacts and drafts; it does NOT send. Once it has run, `/jobs` shows exactly who the
  * unattended sender would write to, which is the thing the dry run was for.
  *
- * It spends up to `JOB_ENRICH_CREDITS_PER_RUN` Hunter credits (default 1), same as the cron.
+ * It spends up to `JOB_ENRICH_CREDITS_PER_CLICK` Hunter credits (default 5) — more than the
+ * cron's 1, because a human pressing a button has decided this batch is worth paying for and
+ * is watching the result. Rows whose paid lookup is already settled cost nothing to re-visit,
+ * so pressing again advances into new rows rather than re-buying the same ones.
  */
 export async function runJobPreparePass(): Promise<void> {
   try {
-    await runJobPrepare();
+    await runJobPrepare({ manual: true });
   } catch {
     // Surfaced on the page by the absence of new contacts rather than by throwing into the
     // action, which would render an error boundary over the whole list.
