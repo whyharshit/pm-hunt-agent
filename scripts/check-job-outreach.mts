@@ -16,7 +16,13 @@
  *     Losing either half turns "allow on-site product interns" into "the remote gate is gone".
  */
 import { isOnsiteAllowed, passes } from '../lib/filters';
-import { renderJobOutreach, rolePhrase, teamPhrase } from '../lib/job-outreach-template';
+import {
+  isTeamDraft,
+  looksLikeRole,
+  renderJobOutreach,
+  rolePhrase,
+  teamPhrase,
+} from '../lib/job-outreach-template';
 import { contactFromJob, isHiringInbox } from '../lib/job-contact';
 import { hasHumanPoster } from '../lib/job-prepare';
 import { POSTER_TAG } from '../lib/postjob';
@@ -114,6 +120,50 @@ for (const figure of [
 }
 check(!/[—–]/.test(text), 'no em or en dashes anywhere in the body');
 check(!/[—–]/.test(draft?.subject ?? ''), 'no em or en dashes in the subject');
+
+console.log('\n--- template: a post headline is NOT a role ---');
+// The real failure, 2026-08-18: this became both the subject line and the middle of the
+// opening sentence, as "your post about Out of Stealth! We raised ~$3.1M … roles at Kily".
+const HEADLINE =
+  'Out of Stealth! We raised ~$3.1M in seed funding, led by Sorin Investments, with participation from Razorpay …';
+check(!looksLikeRole(HEADLINE), 'a funding announcement is not a role');
+check(!looksLikeRole('We are hiring for multiple positions across our growing team!'), 'a sentence is not a role');
+check(looksLikeRole('Product Management Intern'), 'an actual title is a role');
+check(looksLikeRole("Founder's Office - Growth"), 'a hyphenated title is a role');
+
+const headlineDraft = renderJobOutreach(job({ title: HEADLINE, company: 'Kily' }), {
+  ...contact,
+  people: [{ name: 'Sharad Gupta' }],
+});
+check(
+  !headlineDraft?.text.includes('Sorin Investments'),
+  'the headline never reaches the body',
+  headlineDraft?.text.split('\n')[2]?.slice(0, 70)
+);
+check(
+  Boolean(headlineDraft?.text.includes('I came across your hiring post for Kily')),
+  'the sentence degrades gracefully instead of interpolating junk'
+);
+check(
+  headlineDraft?.subject === 'Saw your LinkedIn post, Shivansh from IIT KGP :)',
+  'the subject is the fixed human line',
+  headlineDraft?.subject
+);
+check(
+  !headlineDraft?.subject.includes('Sorin'),
+  'the headline never reaches the subject either'
+);
+
+console.log('\n--- template: the "Hi team," variant ---');
+const teamDraft = renderJobOutreach(job(), contact, { greeting: 'team' });
+check(Boolean(teamDraft?.text.startsWith('Hi team,')), 'team draft greets nobody by name');
+check(!teamDraft?.text.includes('Ananya'), 'no name leaks into a team draft');
+check(isTeamDraft(teamDraft?.model ?? ''), 'the model string records that it is a team draft');
+check(!isTeamDraft(draft?.model ?? ''), 'a person draft is not mistaken for a team draft');
+check(
+  !renderJobOutreach(job(), null),
+  'no contact still means no draft, even now that team drafts exist'
+);
 
 console.log('\n--- template: the role and team phrases ---');
 check(rolePhrase('Product Management Intern') === 'Product Management', 'intern words stripped');

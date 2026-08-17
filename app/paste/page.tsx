@@ -1,5 +1,7 @@
 import { addJobContactEmail, deleteJobRow } from '@/lib/actions';
 import { addressLooksLikePerson, isGenericEmail } from '@/lib/contact';
+import { isHiringInbox } from '@/lib/job-contact';
+import { isTeamDraft } from '@/lib/job-outreach-template';
 import { fmtDate } from '@/lib/format';
 import { greetedIn } from '@/lib/sequence';
 import { getJobContacts, getJobOutreaches, getRecentJobs } from '@/lib/storage';
@@ -88,7 +90,10 @@ function PastedRow({
   contact?: JobContact;
   draft?: JobOutreach;
 }) {
-  const greeted = draft ? greetedIn(draft.text) : null;
+  const teamDraft = draft ? isTeamDraft(draft.model) : false;
+  // A team draft greets "team", which is not a person — reporting it as the greeted name
+  // would put "Send to X? It opens Hi team," in the confirm dialog, which reads as a bug.
+  const greeted = draft && !teamDraft ? greetedIn(draft.text) : null;
   const sent = draft?.sentAt;
 
   return (
@@ -128,9 +133,15 @@ function PastedRow({
                 // named greeting; a personal address that is not THIS person's is the
                 // "Hi Paolo → booking@weroad.com" failure. Both are warnings, not blocks: a
                 // human reading the greeting and the address together is the better check.
-                const shared = isGenericEmail(e.address);
+                // A "Hi team," draft going to careers@ is not a mismatch, it is the point.
+                // Only a NAMED draft landing on a shared inbox is the mail-merge failure.
+                const hiringInbox = isHiringInbox(e.address);
+                const shared = isGenericEmail(e.address) && !(teamDraft && hiringInbox);
                 const mismatch =
-                  !shared && Boolean(greeted) && !addressLooksLikePerson(e.address, greeted!);
+                  !teamDraft &&
+                  !isGenericEmail(e.address) &&
+                  Boolean(greeted) &&
+                  !addressLooksLikePerson(e.address, greeted!);
                 return (
                   <div key={e.address} className="flex flex-wrap items-center gap-2 text-xs">
                     <span className="font-medium text-zinc-800 dark:text-zinc-200">{e.address}</span>
@@ -138,6 +149,11 @@ function PastedRow({
                       {e.person ? `${e.person} · ` : ''}
                       {e.foundOn}
                     </span>
+                    {teamDraft && hiringInbox && (
+                      <span className="text-zinc-500 dark:text-zinc-400">
+                        hiring inbox · draft opens “Hi team,”
+                      </span>
+                    )}
                     {shared && (
                       <span className="text-amber-700 dark:text-amber-500">
                         shared inbox{greeted ? `, but the draft opens “Hi ${greeted},”` : ''}
@@ -152,7 +168,9 @@ function PastedRow({
                       <SendJobButton
                         id={job.id}
                         to={e.address}
-                        greeted={greeted ?? ''}
+                        // "team" reads correctly in the confirm's `Hi {greeted},`, which is
+                        // literally what a team draft opens with.
+                        greeted={teamDraft ? 'team' : (greeted ?? '')}
                         company={job.company}
                         warn={shared || mismatch}
                       />

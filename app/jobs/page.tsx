@@ -3,6 +3,7 @@ import { deleteJobRow } from '@/lib/actions';
 import { fmtDate } from '@/lib/format';
 import { isGenericEmail } from '@/lib/contact';
 import { jobSendCandidates, jobSendCap } from '@/lib/job-autosend';
+import { isHiringInbox } from '@/lib/job-contact';
 import { hasHumanPoster } from '@/lib/job-prepare';
 import { DeleteButton } from '../delete-button';
 import { Nav } from '../nav';
@@ -50,12 +51,18 @@ function OutreachLine({
     );
   }
 
-  const person = contact?.emails.find((e) => e.person && !isGenericEmail(e.address));
+  // A person to write to, or failing that a hiring inbox the "Hi team," draft can go to.
+  // Both are now sendable, so both belong on the row; only info@/support@ style inboxes fall
+  // through to the amber warning below.
+  const person =
+    contact?.emails.find((e) => e.person && !isGenericEmail(e.address)) ??
+    contact?.emails.find((e) => isHiringInbox(e.address));
   if (person) {
+    const team = !person.person;
     return (
       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
         <span>
-          ✉ {person.person} · {person.address}{' '}
+          ✉ {person.person ?? 'Hi team'} · {person.address}{' '}
           <span className="text-zinc-400 dark:text-zinc-500">({person.foundOn})</span>
           {draft ? '' : ' · no draft yet'}
         </span>
@@ -70,7 +77,7 @@ function OutreachLine({
           <SendJobButton
             id={job.id}
             to={wouldSendTo}
-            greeted={person.person ?? ''}
+            greeted={team ? 'team' : (person.person ?? '')}
             company={job.company}
           />
         )}

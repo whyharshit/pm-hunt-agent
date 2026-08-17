@@ -18,6 +18,17 @@ import type { Job, JobContact, JobOutreach } from './types';
  * No em dashes (standing instruction, 2026-08-08).
  */
 
+/**
+ * Who the email opens to.
+ *
+ * `team` exists because most postings publish `careers@` or `hr@` and nothing else, and the
+ * sender refuses to put "Hi Sharad," in front of a shared inbox — that pairing is the botched
+ * mail-merge this project already burned itself on. A shared HIRING inbox is not the same as
+ * a shared company inbox, though: it exists to receive applications, so an email that greets
+ * nobody in particular is exactly right for it. User's call, 2026-08-18.
+ */
+export type JobGreeting = 'person' | 'team';
+
 /** Suffix marking a draft a human edited, so a bulk re-draft leaves it alone. */
 export const EDITED_JOB_MODEL_SUFFIX = '+edited';
 
@@ -44,6 +55,31 @@ export function rolePhrase(title: string): string {
 }
 
 /**
+ * Is this title actually a JOB TITLE, or just the first line of a post?
+ *
+ * ⚠️ WRITTEN AFTER A REAL DRAFT WENT WRONG. A pasted post opened "Out of Stealth! We raised
+ * ~$3.1M in seed funding, led by Sorin Investments…", the role matcher did not recognise a
+ * role in it, and the first line became the title. That title then flowed into BOTH the
+ * subject and the body, producing "I came across your post about Out of Stealth! We raised
+ * ~$3.1M in seed funding … roles at Kily". Every part of the machinery worked; nothing
+ * checked whether the string it was interpolating was a role at all.
+ *
+ * So the template now asks first, and writes a different, shorter sentence when the answer is
+ * no. Rejects on the tells a headline has and a job title does not: length, sentence
+ * punctuation, ellipsis, currency and funding words.
+ */
+export function looksLikeRole(title: string): boolean {
+  const t = title.trim();
+  if (!t || t.length > 60) return false;
+  if (t.split(/\s+/).length > 8) return false;
+  if (/[!?…]|\.\.\./.test(t)) return false;
+  if (/[$₹€£]|\b(\d+(\.\d+)?\s*(m|k|cr|lakh|crore|mn)|seed|series [a-e]|funding|raised|stealth)\b/i.test(t)) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Which team the closing line names. The user's text says "the product team", written while
  * they were applying to a product role — but remote SWE, data and AI rows pass the filters
  * too, and telling an engineering lead you want to learn alongside their product team reads
@@ -61,9 +97,22 @@ export function teamPhrase(title: string): string {
   return 'the team';
 }
 
-/** Subject line. A hyphen, never an em or en dash — those are checked for and rejected. */
+/**
+ * Subject line — the user's own wording, supplied 2026-08-18.
+ *
+ * ⚠️ IT DELIBERATELY CARRIES NO ROLE AND NO COMPANY. The previous version was
+ * `${rolePhrase} role at ${company} - Shivansh, IIT Kharagpur`, which on a post whose title
+ * was not a role produced a subject line 130 characters long containing somebody's funding
+ * announcement. A fixed human sentence cannot fail that way, and the user asked for exactly
+ * this one. Nothing interpolated means nothing to get wrong.
+ *
+ * The smiley is theirs and is not a typo. No em or en dashes, per the standing rule.
+ */
 export function jobSubject(job: Job): string {
-  return `${rolePhrase(job.title)} role at ${job.company} - Shivansh, IIT Kharagpur`;
+  const linkedIn = job.source === 'linkedin' || job.source === 'apify' || job.source === 'paste';
+  return linkedIn
+    ? 'Saw your LinkedIn post, Shivansh from IIT KGP :)'
+    : 'Saw your post, Shivansh from IIT KGP :)';
 }
 
 /**
@@ -74,16 +123,28 @@ export function jobSubject(job: Job): string {
  * role personally is worse than one that never arrives. The caller leaves the row alone
  * rather than being handed a degraded draft.
  */
-export function renderJobOutreach(job: Job, contact?: JobContact | null): JobOutreach | null {
+export function renderJobOutreach(
+  job: Job,
+  contact?: JobContact | null,
+  opts: { greeting?: JobGreeting } = {}
+): JobOutreach | null {
   const person = contact?.people[0]?.name;
-  if (!person) return null;
+  // Defaults to 'person', so an absent contact still returns null and the "no name means no
+  // draft" rule survives. A team draft has to be asked for by a caller that has checked there
+  // is a hiring inbox to send it to.
+  const greeting = opts.greeting ?? 'person';
+  if (greeting === 'person' && !person) return null;
 
-  const role = rolePhrase(job.title);
+  // Only name the role when the title really is one. Otherwise the sentence drops the clause
+  // rather than interpolating a headline into it — see looksLikeRole.
+  const opener = looksLikeRole(job.title)
+    ? `I came across your post about ${rolePhrase(job.title)} roles at ${job.company}, and the kind of work you described is exactly what I've been looking for.`
+    : `I came across your hiring post for ${job.company}, and the kind of work you described is exactly what I've been looking for.`;
 
   const text = [
-    `Hi ${firstName(person)},`,
+    greeting === 'person' ? `Hi ${firstName(person as string)},` : 'Hi team,',
     '',
-    `I came across your post about ${role} roles at ${job.company}, and the kind of work you described is exactly what I've been looking for.`,
+    opener,
     '',
     "I'm Shivansh, a pre-final year student at IIT Kharagpur. I've worked across AI, product, growth and startups, and enjoy solving ambiguous problems and taking them from 0 to 1.",
     '',
@@ -106,6 +167,38 @@ export function renderJobOutreach(job: Job, contact?: JobContact | null): JobOut
     subject: jobSubject(job),
     text,
     generatedAt: new Date().toISOString(),
-    model: 'template:job-v1',
+    // The greeting is recorded IN the model string because the sender has to know which kind
+    // of draft it is holding before choosing a recipient. A "Hi team," draft may go to
+    // careers@; a "Hi Sharad," draft may not.
+    model:
+      greeting === 'person'
+        ? `template:job-${JOB_TEMPLATE_VERSION}`
+        : `template:job-team-${JOB_TEMPLATE_VERSION}`,
   };
+}
+
+/** Is this draft the shared-inbox variant? Read off the model string, which is stored. */
+export function isTeamDraft(model: string): boolean {
+  return model.startsWith('template:job-team');
+}
+
+/**
+ * Was this draft written by the CURRENT template?
+ *
+ * ⚠️ BUMP `JOB_TEMPLATE_VERSION` WHENEVER THE COPY CHANGES. Drafts are written once and then
+ * skipped, so without a version a template fix silently applies only to rows discovered after
+ * it — the already-drafted rows keep the broken copy forever and go out with it. That is not
+ * hypothetical: v1 put a pasted post's opening line ("Out of Stealth! We raised ~$3.1M…")
+ * into both the subject and the body, and those drafts were sitting in the queue ready to send.
+ *
+ * Hand-edited drafts are exempt (`isEditedJobDraft`) and sent ones are never touched, so a
+ * bump re-renders exactly the untouched machine-written drafts and nothing else.
+ */
+export const JOB_TEMPLATE_VERSION = 'v2';
+
+export function isCurrentJobTemplate(model: string): boolean {
+  return (
+    model === `template:job-${JOB_TEMPLATE_VERSION}` ||
+    model === `template:job-team-${JOB_TEMPLATE_VERSION}`
+  );
 }

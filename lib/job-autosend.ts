@@ -1,5 +1,6 @@
 import { addressLooksLikePerson, isGenericEmail } from './contact';
-import { isEditedJobDraft, renderJobOutreach } from './job-outreach-template';
+import { isHiringInbox } from './job-contact';
+import { isEditedJobDraft, renderJobOutreach, type JobGreeting } from './job-outreach-template';
 import { sendOutreachMail } from './mailer';
 import { firstName } from './outreach-template';
 import { createPacer } from './pace';
@@ -71,8 +72,16 @@ function trustedProvenance(e: ContactEmail): boolean {
   return /the job post itself|hunter\.io|added by hand/i.test(e.foundOn);
 }
 
-/** Does the draft already open by greeting this person? */
-function greetingMatches(text: string, person: string): boolean {
+/**
+ * Does the stored draft already open the way this recipient requires?
+ *
+ * Both directions matter. A person draft reaching a shared inbox is the mail-merge failure;
+ * a TEAM draft reaching a named person is merely cold, but it is still not the email that was
+ * reviewed. Either mismatch triggers a re-render before anything is sent.
+ */
+function greetingMatches(text: string, greeting: JobGreeting, person: string): boolean {
+  if (greeting === 'team') return /^\s*hi\s+team\s*,/i.test(text);
+  if (!person) return false;
   return new RegExp(`^\\s*hi\\s+${firstName(person)}\\b`, 'i').test(text);
 }
 
@@ -81,7 +90,10 @@ export type JobSendCandidate = {
   draft: JobOutreach;
   contact: JobContact;
   to: string;
+  /** The name the email must open with. Empty for a team draft, which greets nobody. */
   greeted: string;
+  /** Which draft this address requires. A mismatch here is what re-renders before sending. */
+  greeting: JobGreeting;
   /** Where the address came from, carried through so a dry run can be eyeballed. */
   foundOn: string;
 };
@@ -135,30 +147,49 @@ export async function jobSendCandidates(): Promise<{
     );
     if (usable.length === 0) continue;
 
-    // Shared inboxes are counted before being discarded, so the report can say how many rows
-    // a "Hi team," variant of the template would unlock.
-    const personal = usable.filter((e) => !isGenericEmail(e.address));
-    if (personal.length === 0) {
-      blockedSharedInbox += 1;
-      continue;
-    }
-
-    // Whoever receives it must be who the email greets. Not a policy preference: it is the
+    // A NAMED PERSON FIRST. Whoever receives it must be who the email greets: that is the
     // difference between "Hi Ananya" reaching Ananya and reaching her colleague.
+    const personal = usable.filter((e) => !isGenericEmail(e.address));
     const chosen = personal.find((e) => e.person && addressLooksLikePerson(e.address, e.person));
-    if (!chosen?.person) {
-      blockedNoPersonMatch += 1;
+
+    if (chosen?.person) {
+      out.push({
+        job,
+        draft,
+        contact,
+        to: chosen.address,
+        greeted: chosen.person,
+        greeting: 'person',
+        foundOn: chosen.foundOn,
+      });
       continue;
     }
 
-    out.push({
-      job,
-      draft,
-      contact,
-      to: chosen.address,
-      greeted: chosen.person,
-      foundOn: chosen.foundOn,
-    });
+    // FAILING THAT, a shared HIRING inbox, with the "Hi team," draft (user's call
+    // 2026-08-18). careers@ and hr@ exist to receive applications, so an email that greets
+    // nobody in particular belongs there.
+    //
+    // ⚠️ The narrowing is `isHiringInbox`, NOT `isGenericEmail`. info@, support@ and
+    // booking@ are shared too and are NOT application inboxes — sending a CV to booking@ is
+    // the same class of mistake as sending "Hi Paolo," to it, just quieter. And a row whose
+    // only address is a hiring inbox must carry a TEAM draft; a "Hi Sharad," draft reaching
+    // careers@ is precisely what this whole branch exists to avoid.
+    const hiring = usable.find((e) => isHiringInbox(e.address));
+    if (hiring) {
+      out.push({
+        job,
+        draft,
+        contact,
+        to: hiring.address,
+        greeted: '',
+        greeting: 'team',
+        foundOn: hiring.foundOn,
+      });
+      continue;
+    }
+
+    if (personal.length === 0) blockedSharedInbox += 1;
+    else blockedNoPersonMatch += 1;
   }
 
   // Freshest posting first: if the cap bites, it should bite on the least timely row.
@@ -239,19 +270,22 @@ export async function runJobAutoSend(opts: { dryRun?: boolean } = {}): Promise<J
       // the chosen recipient has changed since, re-render rather than send an email that
       // addresses somebody else.
       let draft = c.draft;
-      if (!greetingMatches(draft.text, c.greeted)) {
+      if (!greetingMatches(draft.text, c.greeting, c.greeted)) {
         if (isEditedJobDraft(draft.model)) {
           result.failed.push({
             company: c.job.company,
             to: c.to,
-            error: `hand-edited draft greets someone other than ${c.greeted} — fix or reset it`,
+            error: `hand-edited draft does not open the way ${c.to} requires — fix or reset it`,
           });
           continue;
         }
-        const regenerated = renderJobOutreach(c.job, {
-          ...c.contact,
-          people: [{ name: c.greeted }, ...c.contact.people],
-        });
+        const regenerated = renderJobOutreach(
+          c.job,
+          c.greeting === 'person'
+            ? { ...c.contact, people: [{ name: c.greeted }, ...c.contact.people] }
+            : c.contact,
+          { greeting: c.greeting }
+        );
         if (!regenerated) {
           result.failed.push({ company: c.job.company, to: c.to, error: 'could not render draft' });
           continue;

@@ -1,5 +1,10 @@
-import { contactFromJob, enrichJobContact } from './job-contact';
-import { renderJobOutreach } from './job-outreach-template';
+import { contactFromJob, enrichJobContact, isHiringInbox } from './job-contact';
+import {
+  isCurrentJobTemplate,
+  isEditedJobDraft,
+  renderJobOutreach,
+  type JobGreeting,
+} from './job-outreach-template';
 import {
   getJobContacts,
   getJobOutreaches,
@@ -267,9 +272,31 @@ export async function runJobPrepare(
 
       if (contact) await saveJobContact(job.id, contact);
 
-      if (drafts.has(job.id)) continue;
+      // A draft is normally written once. The exception is a draft from an OLDER template
+      // version: those keep whatever the template got wrong at the time, and they sit in the
+      // queue ready to send. Sent drafts are the record of what somebody received and
+      // hand-edited ones are not ours to rewrite, so neither is touched.
+      const existingDraft = drafts.get(job.id);
+      if (
+        existingDraft &&
+        (existingDraft.sentAt ||
+          isEditedJobDraft(existingDraft.model) ||
+          isCurrentJobTemplate(existingDraft.model))
+      ) {
+        continue;
+      }
 
-      const draft = renderJobOutreach(job, contact);
+      // A person to greet wins. Failing that, a shared HIRING inbox (careers@, hr@) gets the
+      // "Hi team," variant — it exists to receive applications, so an email addressed to
+      // nobody in particular is right for it. A shared COMPANY inbox (info@, support@) gets
+      // neither, and the row stays for a human.
+      const greeting: JobGreeting = contact?.emails.some((e) => e.person)
+        ? 'person'
+        : contact?.emails.some((e) => isHiringInbox(e.address))
+          ? 'team'
+          : 'person';
+
+      const draft = renderJobOutreach(job, contact, { greeting });
       if (!draft) {
         // No name to greet. Not an error and not a retry — the row simply cannot carry this
         // template, and "Hi there" to somebody who posted a role personally is worse than
@@ -280,7 +307,11 @@ export async function runJobPrepare(
 
       await saveJobOutreach(job.id, draft);
       result.drafted += 1;
-      if (contact?.emails.some((e) => e.person)) result.sendable += 1;
+      if (
+        contact?.emails.some((e) => e.person || isHiringInbox(e.address))
+      ) {
+        result.sendable += 1;
+      }
     } catch (e) {
       const msg = (e as Error).message;
       result.errors.push(`${job.company}: ${msg}`);

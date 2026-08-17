@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { isGenericEmail } from './contact';
 import { firstIndiaCity } from './geo';
-import { contactFromJob, enrichJobContact } from './job-contact';
+import { contactFromJob, enrichJobContact, isHiringInbox } from './job-contact';
 import { renderJobOutreach } from './job-outreach-template';
 import { headline, POSTER_TAG } from './postjob';
 import { getJob, saveJobContact, saveJobOutreach, saveJobs } from './storage';
@@ -147,7 +147,15 @@ export async function ingestHiringPost(input: PasteInput): Promise<PasteOutcome>
 
   if (contact) await saveJobContact(id, contact);
 
-  const draft = renderJobOutreach(job, contact);
+  // Same rule as the cron: a person to greet wins, a shared HIRING inbox gets "Hi team,",
+  // anything else gets no draft. One decision, made in two places, so keep them identical.
+  const greeting = contact?.emails.some((e) => e.person)
+    ? 'person'
+    : contact?.emails.some((e) => isHiringInbox(e.address))
+      ? 'team'
+      : 'person';
+
+  const draft = renderJobOutreach(job, contact, { greeting });
   if (draft) await saveJobOutreach(id, draft);
 
   const personal = contact?.emails.filter((e) => !isGenericEmail(e.address)) ?? [];
@@ -166,7 +174,7 @@ export async function ingestHiringPost(input: PasteInput): Promise<PasteOutcome>
       ok: true,
       jobId: id,
       creditSpent,
-      message: `Found ${contact.emails.length} address(es) via ${how}, but nobody to greet — add the poster's name and paste again.`,
+      message: `Found ${contact.emails.length} address(es) via ${how}, but none of them is a person or a hiring inbox. Add the poster's name, or an address, on the row.`,
     };
   }
   return {
