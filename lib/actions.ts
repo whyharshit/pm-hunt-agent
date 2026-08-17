@@ -9,14 +9,20 @@ import {
   getFundingContact,
   getFundingItem,
   getFundingOutreach,
+  getJob,
+  getJobContact,
+  getJobOutreach,
   getOutreachSequence,
   getTracked,
   recordAgentRun,
   saveFundingContact,
   saveFundingOutreach,
   saveGformPrefill,
+  saveJobContact,
+  saveJobOutreach,
   saveTracked,
   updateFundingStatus,
+  updateJobStatus,
   updateTracked,
   updateWhatsappLeadStatus,
   urlId,
@@ -35,8 +41,10 @@ import {
   isEditedDraft,
   renderOutreachTemplate,
 } from './outreach-template';
+import { renderJobOutreach } from './job-outreach-template';
+import { ingestHiringPost } from './paste';
 import { closeSequence, greetedIn, recordInitialSend } from './sequence';
-import type { FundingContact, FundingItem, TrackedUrl, WhatsappLead } from './types';
+import type { FundingContact, FundingItem, JobContact, TrackedUrl, WhatsappLead } from './types';
 
 const VALID_STATUSES: TrackedUrl['status'][] = ['new', 'drafted', 'submitted', 'rejected', 'skipped'];
 const VALID_FUNDING_STATUSES: FundingItem['status'][] = ['new', 'contacted', 'skipped'];
@@ -226,7 +234,143 @@ export async function deleteJobRow(formData: FormData): Promise<void> {
   revalidatePath('/');
 }
 
+export type PasteState = { ok: boolean; message: string };
+
+/**
+ * Paste a hiring post you found yourself, get a drafted application back.
+ *
+ * Deliberately does NOT send. Pasting and sending in one click would mean a cold email
+ * leaving on the same submit that composed it, with nobody having read either the address or
+ * the greeting — and this page exists precisely for the posts the automated pipeline could
+ * not reach, which are the ones most likely to need a human eye. Review, then press Send.
+ */
+export async function pasteHiringPost(
+  _prev: PasteState,
+  formData: FormData
+): Promise<PasteState> {
+  const text = formData.get('text');
+  const company = formData.get('company');
+  if (typeof text !== 'string' || typeof company !== 'string') {
+    return { ok: false, message: 'Paste the post and name the company.' };
+  }
+
+  const str = (k: string) => {
+    const v = formData.get(k);
+    return typeof v === 'string' ? v : '';
+  };
+
+  try {
+    const outcome = await ingestHiringPost({
+      text,
+      company,
+      poster: str('poster'),
+      role: str('role'),
+      url: str('url'),
+    });
+    revalidatePath('/paste');
+    revalidatePath('/jobs');
+    return { ok: outcome.ok, message: outcome.message };
+  } catch (e) {
+    return { ok: false, message: `Failed: ${(e as Error).message}` };
+  }
+}
+
+/**
+ * Send one job application by hand, from the paste page or the jobs list.
+ *
+ * The same narrowing as `sendFundingEmail`: the recipient must be an address already stored
+ * on the row's contact, never whatever the form posted, and a draft must already exist. The
+ * unattended sender's extra gates (person-matched address, no shared inboxes) are NOT applied
+ * here — a human is looking at the greeting and the address on the same screen, which is a
+ * better check than any regex, and this button is how the shared-inbox rows get sent at all.
+ */
+export async function sendJobEmail(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  const to = formData.get('to');
+  if (typeof id !== 'string' || typeof to !== 'string') return;
+
+  const [job, draft, contact] = await Promise.all([
+    getJob(id),
+    getJobOutreach(id),
+    getJobContact(id),
+  ]);
+  if (!job || !draft) return;
+  if (!contact?.emails.some((e) => e.address === to)) return;
+
+  try {
+    const sent = await sendOutreachMail({
+      to,
+      subject: draft.subject,
+      text: draft.text,
+      company: job.company,
+    });
+    const sentAt = new Date().toISOString();
+    await saveJobOutreach(id, { ...draft, sentAt: draft.sentAt ?? sentAt, sentTo: to });
+    await updateJobStatus(id, 'contacted');
+    await recordInitialSend({
+      id,
+      kind: 'job',
+      company: job.company,
+      to,
+      greeted: firstName(greetedIn(draft.text) ?? contact?.people[0]?.name ?? ''),
+      subject: draft.subject,
+      sentAt,
+      messageId: sent.id,
+    });
+  } catch {
+    // run-state already recorded as 'error' by sendOutreachMail; the agent card surfaces it
+  }
+  revalidatePath('/paste');
+  revalidatePath('/jobs');
+}
+
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[a-z]{2,24}$/i;
+
+/**
+ * Add an address to a job row by hand — the same escape hatch funding rows have, for the
+ * posts where the address is in an image, behind a link, or simply not there.
+ */
+export async function addJobContactEmail(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  const emailRaw = formData.get('email');
+  const nameRaw = formData.get('name');
+  if (typeof id !== 'string' || typeof emailRaw !== 'string') return;
+
+  const email = emailRaw.trim().toLowerCase();
+  if (!EMAIL_SHAPE.test(email)) return;
+  const name = typeof nameRaw === 'string' ? nameRaw.trim() : '';
+
+  const [job, existing] = await Promise.all([getJob(id), getJobContact(id)]);
+  if (!job) return;
+
+  const people = existing?.people ?? [];
+  const merged = name
+    ? [{ name }, ...people.filter((p) => p.name.toLowerCase() !== name.toLowerCase())]
+    : people;
+
+  const contact: JobContact = {
+    id,
+    people: merged,
+    emails: [
+      // Attach the person only when one was supplied, so the sender's greeting check has
+      // something true to test against rather than a name paired with an unrelated inbox.
+      { address: email, foundOn: 'added by hand', ...(name ? { person: name } : {}) },
+      ...(existing?.emails ?? []).filter((e) => e.address !== email),
+    ],
+    website: existing?.website,
+    foundAt: new Date().toISOString(),
+    model: existing?.model ?? 'manual',
+    note: existing?.note,
+  };
+  await saveJobContact(id, contact);
+
+  // Re-render so the greeting matches whoever was just added. Free, no model involved.
+  const draft = renderJobOutreach(job, contact);
+  if (draft) await saveJobOutreach(id, draft);
+
+  revalidatePath('/paste');
+  revalidatePath('/jobs');
+}
 
 /**
  * Add a contact by hand — for the rows the automated lookup got wrong or couldn't reach.
