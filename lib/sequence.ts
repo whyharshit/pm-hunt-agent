@@ -61,6 +61,8 @@ export async function recordInitialSend(input: {
   subject: string;
   sentAt: string;
   messageId?: string;
+  /** Which pipeline this came from, deciding the follow-up copy. Absent means funding. */
+  kind?: OutreachSequence['kind'];
 }): Promise<OutreachSequence> {
   const send: OutreachSend = {
     at: input.sentAt,
@@ -92,6 +94,7 @@ export async function recordInitialSend(input: {
 
   const seq: OutreachSequence = {
     id: input.id,
+    ...(input.kind ? { kind: input.kind } : {}),
     company: input.company,
     to: input.to,
     greeted: input.greeted,

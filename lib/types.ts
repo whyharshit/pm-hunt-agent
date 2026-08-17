@@ -18,7 +18,13 @@ export type Job = {
     | 'remotive'
     | 'jobicy'
     // workatastartup.com rendered through Firecrawl (lib/sources/firecrawl.ts).
-    | 'waas';
+    | 'waas'
+    /**
+     * A hiring post the user pasted in by hand on /paste. Stored as a Job rather than given
+     * its own type so it inherits the contact lookup, the draft, the sender and the follow-up
+     * sequence unchanged — a pasted row and a discovered one are the same thing downstream.
+     */
+    | 'paste';
   title: string;
   company: string;
   location: string;
@@ -28,6 +34,12 @@ export type Job = {
   tags: string[];
   description?: string;
   salary?: string;
+  /**
+   * Outreach state. OPTIONAL because every job stored before 2026-08-17 predates job outreach
+   * and has no status at all — absent is read as 'new' everywhere, so old rows join the queue
+   * instead of being stranded outside it.
+   */
+  status?: 'new' | 'contacted' | 'skipped';
 };
 
 import type { Tier } from './classify';
@@ -144,8 +156,17 @@ export type OutreachSend = {
  * anything else.
  */
 export type OutreachSequence = {
-  /** Same id as the funding row it came from. */
+  /** Same id as the row it came from — a funding row, or since 2026-08-17 a job row. */
   id: string;
+  /**
+   * Which pipeline opened this sequence, and therefore which follow-up copy it gets.
+   *
+   * OPTIONAL, and absent means 'funding': every sequence written before job outreach existed
+   * came from the funding sender. Without this the job sends would inherit the founder
+   * follow-ups, whose third touch says "Congratulations again on the raise" — to somebody who
+   * posted an internship and never raised anything.
+   */
+  kind?: 'funding' | 'job';
   company: string;
   /** The one address this sequence talks to. A sequence never switches recipient. */
   to: string;
@@ -194,6 +215,42 @@ export type FundingContact = {
   model: string;
   /** Why a lookup came back thin (no site linked, site unreachable, no public email). */
   note?: string;
+};
+
+/**
+ * Who to write to about a discovered JOB, and where that address came from.
+ *
+ * Deliberately its own type rather than a reuse of `FundingContact`. A funding row's contact
+ * is "the founder of the company that raised", found by reading an article; a job row's is
+ * "whoever posted this role", and the best case is that they wrote the address into the post
+ * themselves. `founders` would be an actively misleading field name here, and provenance
+ * ranking differs: an address lifted from the post body is the BEST kind on a job row and the
+ * worst kind on a funding row.
+ */
+export type JobContact = {
+  /** Same id as the job row. */
+  id: string;
+  people: ContactPerson[];
+  emails: ContactEmail[];
+  /** The company's own domain, once something has established it. */
+  website?: string;
+  foundAt: string;
+  /** `post`, `hunter.io`, `added by hand` — how this contact was arrived at. */
+  model: string;
+  /** Why a lookup came back thin, shown on the dashboard row. */
+  note?: string;
+};
+
+/** The drafted application email for a job row. Mirrors FundingOutreach; see lib/job-outreach-template.ts. */
+export type JobOutreach = {
+  id: string;
+  subject: string;
+  text: string;
+  generatedAt: string;
+  model: string;
+  /** Set once actually emailed. Presence means a real message left the building. */
+  sentAt?: string;
+  sentTo?: string;
 };
 
 export type GformField = {

@@ -8,6 +8,8 @@ import type {
   FundingOutreach,
   GformPrefill,
   Job,
+  JobContact,
+  JobOutreach,
   OutreachSequence,
   ScrapedJd,
   StoredPdf,
@@ -48,6 +50,8 @@ const FOLLOWUP_ALL = 'followup:all';
 /** Group chatter is high-volume, so dedupe keys expire instead of growing a set forever. */
 const WA_SEEN_TTL_SECONDS = 60 * 60 * 24 * 45;
 const jobKey = (id: string) => `job:${id}`;
+const jobContactKey = (id: string) => `job-contact:${id}`;
+const jobOutreachKey = (id: string) => `job-outreach:${id}`;
 const trackerKey = (id: string) => `tracker:${id}`;
 const fundingKey = (id: string) => `funding:${id}`;
 const fundingOutreachKey = (id: string) => `funding-outreach:${id}`;
@@ -366,6 +370,81 @@ export async function getFundingContacts(ids: string[]): Promise<Map<string, Fun
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Job outreach — contacts, drafts and status for DISCOVERED JOBS (2026-08-17)
+//
+// Separate keys from the funding equivalents, not a shared "outreach:" namespace: the two
+// pipelines have different contact shapes, different budgets and different senders, and one
+// namespace would make it possible to read a funding contact onto a job row by id collision.
+// ---------------------------------------------------------------------------
+
+export async function getJob(id: string): Promise<Job | null> {
+  const raw = await redis().get(jobKey(id));
+  if (!raw) return null;
+  return typeof raw === 'string' ? (JSON.parse(raw) as Job) : (raw as Job);
+}
+
+/**
+ * Set a job's outreach status.
+ *
+ * Reads the row first rather than patching blind: jobs are stored as whole JSON blobs and a
+ * blind write would drop every other field. Absent rows are ignored — a job deleted from the
+ * dashboard between a send and this write is not an error worth failing the send over.
+ */
+export async function updateJobStatus(id: string, status: NonNullable<Job['status']>): Promise<void> {
+  const job = await getJob(id);
+  if (!job) return;
+  await redis().set(jobKey(id), JSON.stringify({ ...job, status }));
+}
+
+export async function getJobContact(id: string): Promise<JobContact | null> {
+  const raw = await redis().get(jobContactKey(id));
+  if (!raw) return null;
+  return typeof raw === 'string' ? (JSON.parse(raw) as JobContact) : (raw as JobContact);
+}
+
+export async function saveJobContact(id: string, c: JobContact): Promise<void> {
+  await redis().set(jobContactKey(id), JSON.stringify(c));
+}
+
+export async function getJobContacts(ids: string[]): Promise<Map<string, JobContact>> {
+  const out = new Map<string, JobContact>();
+  if (ids.length === 0) return out;
+  const pipe = redis().pipeline();
+  for (const id of ids) pipe.get(jobContactKey(id));
+  const raws = (await pipe.exec()) as (string | JobContact | null)[];
+  ids.forEach((id, i) => {
+    const raw = raws[i];
+    if (!raw) return;
+    out.set(id, typeof raw === 'string' ? (JSON.parse(raw) as JobContact) : raw);
+  });
+  return out;
+}
+
+export async function getJobOutreach(id: string): Promise<JobOutreach | null> {
+  const raw = await redis().get(jobOutreachKey(id));
+  if (!raw) return null;
+  return typeof raw === 'string' ? (JSON.parse(raw) as JobOutreach) : (raw as JobOutreach);
+}
+
+export async function saveJobOutreach(id: string, o: JobOutreach): Promise<void> {
+  await redis().set(jobOutreachKey(id), JSON.stringify(o));
+}
+
+export async function getJobOutreaches(ids: string[]): Promise<Map<string, JobOutreach>> {
+  const out = new Map<string, JobOutreach>();
+  if (ids.length === 0) return out;
+  const pipe = redis().pipeline();
+  for (const id of ids) pipe.get(jobOutreachKey(id));
+  const raws = (await pipe.exec()) as (string | JobOutreach | null)[];
+  ids.forEach((id, i) => {
+    const raw = raws[i];
+    if (!raw) return;
+    out.set(id, typeof raw === 'string' ? (JSON.parse(raw) as JobOutreach) : raw);
+  });
+  return out;
+}
+
 export async function getGformPrefill(id: string): Promise<GformPrefill | null> {
   const raw = await redis().get(gformKey(id));
   if (!raw) return null;
@@ -488,6 +567,10 @@ export async function deleteJob(id: string): Promise<void> {
   const pipe = redis().pipeline();
   pipe.del(jobKey(id));
   pipe.zrem(JOBS_INDEX, id);
+  // Its outreach artifacts go with it. Left behind they would be orphaned blobs that a
+  // re-discovered id could inherit — a stale draft addressed to somebody else's poster.
+  pipe.del(jobContactKey(id));
+  pipe.del(jobOutreachKey(id));
   // Deliberately NOT removed from seen:ids — a purged test job must not come back on the
   // next discovery run if a source still serves it.
   await pipe.exec();

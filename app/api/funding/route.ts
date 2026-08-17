@@ -1,6 +1,8 @@
 import { runAutoSend } from '@/lib/autosend';
 import { runFollowUps } from '@/lib/followup';
 import { runFundingScan } from '@/lib/funding';
+import { runJobAutoSend } from '@/lib/job-autosend';
+import { runJobPrepare } from '@/lib/job-prepare';
 import { runPrepare } from '@/lib/prepare';
 import { fetchFundingNews } from '@/lib/sources/fundingnews';
 import { fetchTechCrunchFundingDetailed } from '@/lib/sources/techcrunch';
@@ -64,6 +66,17 @@ async function handle(request: Request) {
   const prepare = url.searchParams.get('prepare');
   const shouldPrepare = prepare === 'true' || (shouldSend && prepare !== 'off');
 
+  // JOB outreach (2026-08-17) rides this route rather than /api/discover for one hard reason:
+  // discover is capped at 60s and its slowest source already fills most of that, while this
+  // invocation has 300s and is already the one that mails people. Hobby allows two crons and
+  // both are spoken for, so there is no third schedule to give it.
+  //
+  // Its own switch, deliberately not `autosend`: `?jobs=dry` rehearses the job sender alone,
+  // `?jobs=off` suppresses it on a scheduled run while founder outreach carries on, and
+  // `?jobs=true` forces one by hand. Pausing one pipeline must never silently pause the other.
+  const jobs = url.searchParams.get('jobs');
+  const shouldRunJobs = jobs === 'true' || (isVercelCron && jobs !== 'off');
+
   try {
     const result = await runFundingScan();
 
@@ -83,13 +96,24 @@ async function handle(request: Request) {
         ? await runFollowUps({ dryRun: followups === 'dry' })
         : null;
 
-    if (prepareResult || autosendResult || followupResult) {
+    // Prepare then send, in that order and for the same reason the funding pair runs that
+    // way: a job discovered this morning gets its contact, its draft and its email in one
+    // invocation instead of waiting a day between each step.
+    const jobsDry = jobs === 'dry';
+    const jobPrepareResult =
+      shouldRunJobs || jobsDry ? await runJobPrepare({ dryRun: jobsDry }) : null;
+    const jobSendResult =
+      shouldRunJobs || jobsDry ? await runJobAutoSend({ dryRun: jobsDry }) : null;
+
+    if (prepareResult || autosendResult || followupResult || jobPrepareResult) {
       return Response.json({
         ok: true,
         ...result,
         ...(prepareResult ? { prepare: prepareResult } : {}),
         ...(autosendResult ? { autosend: autosendResult } : {}),
         ...(followupResult ? { followups: followupResult } : {}),
+        ...(jobPrepareResult ? { jobPrepare: jobPrepareResult } : {}),
+        ...(jobSendResult ? { jobSend: jobSendResult } : {}),
         triggeredByCron: isVercelCron,
       });
     }

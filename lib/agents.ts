@@ -20,7 +20,7 @@ export const AGENTS: AgentMeta[] = [
   {
     id: 'discover',
     name: 'Discover',
-    description: 'Pulls remote intern roles (product/ops/data/VC/AI) from RemoteOK + We Work Remotely + HN Who\'s Hiring + Internshala + Unstop + YC + LinkedIn (Serper + Apify comment-mining), filters them, and saves new matches.',
+    description: "Pulls intern roles (product/ops/data/VC/AI/SWE) from RemoteOK + We Work Remotely + HN Who's Hiring + Internshala + Unstop + YC + LinkedIn (guest job search, Serper, and Apify post search), filters them, and saves new matches. Remote everywhere, plus on-site product roles in India.",
     kind: 'cron',
     cadence: 'daily 09:00 UTC',
     status: 'live',
@@ -74,6 +74,15 @@ export const AGENTS: AgentMeta[] = [
     description: 'Send a funding cold-outreach email to a founder — one explicit send per click, never a batch.',
     kind: 'pipeline',
     cadence: 'per outreach',
+    status: 'live',
+  },
+  {
+    id: 'job-mailer',
+    name: 'Job Applications',
+    description:
+      'Finds who posted a discovered job (the address in the post first, Hunter second), drafts the application email, and sends it unattended. Only ever to a named person whose address matches the greeting.',
+    kind: 'cron',
+    cadence: 'daily 09:17 IST',
     status: 'live',
   },
 ];
