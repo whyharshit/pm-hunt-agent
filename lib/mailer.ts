@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer';
 import { toHtml } from './mail-html';
-import { RESUME_FILENAME, readResumePdf } from './resume-file';
+import { RESUME_FILENAME, readResumePdf, resumeDelivery, resumeLinkUrl } from './resume-file';
 import { recordAgentRun, setAgentRunning } from './storage';
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
@@ -183,16 +183,28 @@ export async function sendOutreachMail(opts: {
   const { company, attachResume = true, ...mail } = opts;
   await setAgentRunning('mailer');
   try {
-    // Every outreach email carries the resume (user's instruction 2026-08-09). Attached
+    // Every outreach email carries the resume (user's instruction 2026-08-09). Delivered
     // here, in the single funnel all outreach passes through, so the manual dashboard send
-    // and the unattended cron send can never diverge on what the founder receives.
-    const resume = attachResume ? await readResumePdf() : null;
+    // and the unattended cron send can never diverge on what the recipient receives.
+    //
+    // `attachResume` means "include the resume", not "attach it specifically" — follow-ups
+    // pass false because it is already in the thread, whichever way it travelled.
+    const delivery = resumeDelivery();
+    const wantsFile = attachResume && delivery !== 'link';
+    const resume = wantsFile ? await readResumePdf() : null;
+
+    // The link goes UNDER the signature, where a signature link belongs, rather than being
+    // injected into the body — the body is the user's own copy and the mailer does not edit it.
+    const link = attachResume && delivery !== 'attach' ? resumeLinkUrl() : '';
+    const text = link ? `${mail.text}\n\nResume: ${link}` : mail.text;
+
     const result = await sendMail({
       ...mail,
+      text,
       // Built here for the same reason the resume is attached here: this is the one funnel
       // all outreach passes through, so the dashboard send and the unattended cron can never
       // disagree about what the founder sees.
-      html: toHtml(mail.text),
+      html: toHtml(text),
       ...(resume ? { attachments: [{ filename: RESUME_FILENAME, content: resume }] } : {}),
     });
     await recordAgentRun('mailer', {
@@ -201,7 +213,15 @@ export async function sendOutreachMail(opts: {
       // visible on the agent card instead of being discovered by a founder.
       summary:
         `sent to ${opts.to} (${company})` +
-        (attachResume ? (resume ? ' + resume' : ' — NO RESUME ATTACHED') : ' · follow-up'),
+        (attachResume
+          ? resume && link
+            ? ' + resume (attached and linked)'
+            : resume
+              ? ' + resume'
+              : link
+                ? ' + resume link'
+                : ' — NO RESUME SENT'
+          : ' · follow-up'),
       error: null,
     });
     return result;

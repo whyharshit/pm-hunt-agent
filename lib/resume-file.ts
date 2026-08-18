@@ -35,3 +35,40 @@ export async function readResumePdf(): Promise<Buffer | null> {
     return null;
   }
 }
+
+/**
+ * How the resume reaches the recipient: attached, linked, or both.
+ *
+ * ⚠️ `attach` IS THE DEFAULT AND THAT IS A DELIBERATE RECOMMENDATION, not inertia. Asked
+ * whether a Google Drive link would help with spam placement (2026-08-18), the honest answer is
+ * that it is as likely to hurt:
+ *
+ *  - A file-sharing link from an unknown sender is a textbook phishing shape. Microsoft 365
+ *    and Outlook, which plenty of Indian startups run on, score `drive.google.com` links from
+ *    strangers harder than they score a small PDF.
+ *  - The failure mode is SILENT AND WORSE. If Drive sharing is not "anyone with the link", the
+ *    recruiter hits a request-access wall and it reads exactly like being ignored. An
+ *    attachment either arrives or bounces, and a bounce is something this project detects.
+ *  - Recruiters forward the mail into an ATS or file the attachment. No file often means no
+ *    resume in their system.
+ *  - And a ~150KB PDF is a modest signal next to the real one: sending volume. The 5-to-20
+ *    daily jump matters far more than how the resume travels.
+ *
+ * `both` is the hedge worth trying: the file for the ATS, the link for a phone reader and as a
+ * fallback if a filter strips the attachment. `link` alone drops the attachment entirely.
+ *
+ *   RESUME_DELIVERY  attach (default) | link | both
+ *   RESUME_LINK_URL  the share URL. Without it, `link` and `both` fall back to attaching,
+ *                    because sending no resume at all is the one outcome worse than either.
+ */
+export type ResumeDelivery = 'attach' | 'link' | 'both';
+
+export function resumeLinkUrl(): string {
+  return process.env.RESUME_LINK_URL?.trim() ?? '';
+}
+
+export function resumeDelivery(): ResumeDelivery {
+  const raw = process.env.RESUME_DELIVERY?.trim().toLowerCase();
+  if ((raw === 'link' || raw === 'both') && resumeLinkUrl()) return raw;
+  return 'attach';
+}
