@@ -41,7 +41,14 @@ async function safe<T>(label: string, fn: () => Promise<T>, errors: string[]): P
  * So post search (lib/sources/apify-posts.ts) takes the budget by default and the comment
  * miner stands down: it is the same money for a hiring post instead of a comment that might
  * lead to one, and on 2026-08-17 the comment miner's entire daily yield was 2 posts.
- * `APIFY_MINE_COMMENTS=true` runs both — only worth it on a paid Apify plan.
+ * `APIFY_MINE_COMMENTS=true` runs both.
+ *
+ * ⚠️ SINCE 2026-08-18 POST SEARCH IS FOUR SCRAPERS, NOT ONE — one lane per role family
+ * (product, founder's office/strategy, data, SWE), on the user's instruction, and the comment
+ * miner is the fifth of that set rather than an alternative to it. They still share ONE
+ * budget, `APIFY_POSTS_PER_RUN`, because they still share one $5 plan unless more tokens are
+ * added to `APIFY_TOKENS`. Turning this on without raising that budget makes every lane
+ * shallower; turning it on without more tokens makes the plan run out sooner.
  */
 function mineComments(): boolean {
   return /^(1|true|yes)$/i.test(process.env.APIFY_MINE_COMMENTS ?? '');

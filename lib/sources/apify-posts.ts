@@ -1,3 +1,4 @@
+import { classifyUrl } from '../classify';
 import { headline, locationOf, posterTag, titleSurvives } from '../postjob';
 import { matchWhatsappPost } from '../whatsapp/match';
 import type { Job } from '../types';
@@ -31,29 +32,117 @@ import type { Job } from '../types';
  * might lead to one.
  *
  * ENV
- *   APIFY_TOKEN            — required; unset means this source returns [] silently, like the rest
- *   APIFY_POSTS_PER_RUN    — total posts one run may buy. Cap AND kill switch: 0 = off
- *   APIFY_POST_QUERIES     — comma-separated search queries, overriding DEFAULT_QUERIES
+ *   APIFY_TOKENS           — comma-separated tokens, pooled; `APIFY_TOKEN` still works.
+ *                            Unset means this source returns [] silently, like the rest.
+ *   APIFY_POSTS_PER_RUN    — total posts one run may buy, ACROSS all lanes. Cap AND kill
+ *                            switch: 0 = off
+ *   APIFY_LANES            — which role families to run, e.g. `product,founders`. Default all
+ *   APIFY_REQUIRE_CONTACT  — default true: keep only posts naming an address or a form
+ *   APIFY_POST_QUERIES     — legacy single-list override; replaces the lanes when set
+ *   APIFY_MINE_COMMENTS    — runs the fifth scraper, the comment miner (lib/sources/apify.ts)
  */
 const ACTOR = 'harvestapi~linkedin-post-search';
 const ENDPOINT = `https://api.apify.com/v2/acts/${ACTOR}/run-sync-get-dataset-items`;
 
 /**
- * What the user types into LinkedIn's search bar, near enough. Kept few and broad: the actor
- * bills per POST returned, so the budget is spent on queries, and a fifth near-duplicate query
- * mostly buys the same posts twice.
+ * ONE SCRAPER PER ROLE FAMILY (user's instruction 2026-08-18: "1 for product, 1 for founders
+ * office/strategy, 1 for data, 1 for SWE, 1 for mining comments").
+ *
+ * Why lanes rather than one longer query list: the actor caps posts PER QUERY, so a flat list
+ * spends the budget wherever the queries happen to be densest. Product is the profile's best
+ * fit and used to share a pot with everything else; splitting the budget by family makes each
+ * family's depth a number that can be read and changed, and a lane that yields nothing can be
+ * switched off without touching the ones that work.
+ *
+ * ⚠️ THE QUERIES ARE BIASED TOWARDS POSTS THAT NAME A WAY TO APPLY, which is the other half of
+ * the same instruction ("focus on posts with emails or forms instead of normal linkedin
+ * listings"). Filtering after the fact cannot save money — every post is billed whether it is
+ * kept or not — so the phrasing that Indian hiring posts use when they want a direct
+ * application ("share your resume", "drop your CV", "google form") has to be in the QUERY.
+ *
+ * ⚠️ DATA AND SWE ARE ASKED FOR REMOTE ON PURPOSE, and this is not a style choice. The
+ * on-site-in-India allowance is PRODUCT-ONLY, in both `passes()` and the post matcher, so an
+ * on-site Bangalore SWE post is dropped after being paid for. Until the user widens that
+ * allowance those two lanes can only convert on remote posts, and asking for anything else
+ * buys rows that are discarded downstream.
  */
-const DEFAULT_QUERIES = [
-  'hiring product intern',
-  'product management internship india',
-  "founder's office intern hiring",
-  'hiring intern bangalore',
+export type PostLane = {
+  key: 'product' | 'founders' | 'data' | 'swe' | 'custom';
+  queries: string[];
+};
+
+export const POST_LANES: PostLane[] = [
+  {
+    key: 'product',
+    queries: [
+      'hiring product intern',
+      'product management internship india',
+      'product intern share your resume',
+      'hiring product intern bangalore',
+    ],
+  },
+  {
+    key: 'founders',
+    queries: [
+      "founder's office intern hiring",
+      'strategy intern hiring india',
+      "founder's office internship send your cv",
+      'chief of staff intern india',
+    ],
+  },
+  {
+    key: 'data',
+    queries: [
+      'remote data analyst intern hiring india',
+      'remote data science intern hiring',
+      'analytics intern hiring share your resume remote',
+    ],
+  },
+  {
+    key: 'swe',
+    queries: [
+      'remote software engineer intern hiring india',
+      'remote sde intern hiring india',
+      'backend intern hiring remote drop your resume',
+    ],
+  },
 ];
 
 /**
- * Posts one run may buy, across ALL queries. Default 40 = $0.08/day = ~$2.40/month, which
- * fits inside the $5 free plan with room for the odd manual run. The actor's own cap is
- * per-query, so this is divided out below — raising it raises the bill linearly.
+ * Lanes to run this pass. `APIFY_LANES=product,founders` narrows it; empty string = none.
+ *
+ * `APIFY_POST_QUERIES` predates the lanes and is still honoured as a single override lane,
+ * because it is documented as a live switch and may be set in production — quietly ignoring a
+ * variable somebody set to steer this source would be worse than not having it.
+ */
+function enabledLanes(): PostLane[] {
+  const custom = process.env.APIFY_POST_QUERIES?.trim();
+  if (custom) {
+    const queries = custom.split(',').map((q) => q.trim()).filter(Boolean);
+    if (queries.length > 0) return [{ key: 'custom', queries }];
+  }
+
+  const raw = process.env.APIFY_LANES;
+  if (raw === undefined) return POST_LANES;
+  const want = new Set(raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean));
+  return POST_LANES.filter((l) => want.has(l.key));
+}
+
+/**
+ * Apify tokens, pooled exactly like the Gemini and Hunter keys and for the same reason: the
+ * free plan is $5 of usage per ACCOUNT, so two accounts are $10 and one account entered twice
+ * is still $5. Lanes are handed tokens round-robin, so with four tokens each lane bills a
+ * different account and one exhausted plan cannot stop the others.
+ */
+export function apifyTokens(): string[] {
+  const raw = [process.env.APIFY_TOKENS ?? '', process.env.APIFY_TOKEN ?? ''].join(',');
+  return [...new Set(raw.split(/[,\s]+/).map((t) => t.trim()).filter(Boolean))];
+}
+
+/**
+ * Posts one run may buy, across ALL lanes. Default 40 = $0.08/day = ~$2.40/month, which fits
+ * inside a single $5 free plan. The actor's cap is per-query, so this is divided by lane and
+ * then by that lane's queries — raising it raises the bill linearly.
  */
 function postBudget(): number {
   const raw = process.env.APIFY_POSTS_PER_RUN;
@@ -62,10 +151,17 @@ function postBudget(): number {
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
 }
 
-function queries(): string[] {
-  const raw = process.env.APIFY_POST_QUERIES?.trim();
-  if (!raw) return DEFAULT_QUERIES;
-  return raw.split(',').map((s) => s.trim()).filter(Boolean);
+/**
+ * Keep only posts that name a way to apply directly — an address, a Google Form, or an ATS
+ * link. ON by default (user's instruction), because a post whose only route is LinkedIn's own
+ * Easy Apply is the same stale listing the boards already supply 119 of a day, and it can
+ * never be emailed.
+ *
+ * `APIFY_REQUIRE_CONTACT=false` keeps everything, which is worth doing for one run if the
+ * lanes ever go quiet: it distinguishes "the queries found nothing" from "this filter ate it".
+ */
+export function apifyRequireContact(): boolean {
+  return !/^(0|false|no)$/i.test(process.env.APIFY_REQUIRE_CONTACT ?? 'true');
 }
 
 /** The Discover cron dies at 60s; a sync Apify run that hangs would take it down. */
@@ -93,22 +189,32 @@ type ApifyPost = {
   postedAt?: { timestamp?: number; date?: string };
 };
 
-/** Search LinkedIn posts for hiring posts matching this profile. [] when unconfigured. */
-export async function fetchLinkedInPostSearch(): Promise<Job[]> {
-  const token = process.env.APIFY_TOKEN;
-  const budget = postBudget();
-  const qs = queries();
-  if (!token || budget === 0 || qs.length === 0) return [];
+/** Per-lane outcome, so a check script can show where the money went. */
+export type LaneStat = {
+  lane: PostLane['key'];
+  bought: number;
+  matched: number;
+  /** Matched the role, but gave no address and no form — the `requireContact` drop. */
+  noContact: number;
+  error?: string;
+};
 
-  // The actor caps per QUERY, so the run-wide budget is divided out. At least 1, or a large
-  // query list would silently round every query down to zero posts.
-  const perQuery = Math.max(1, Math.floor(budget / qs.length));
+/** One lane: buy its posts and turn the usable ones into rows. */
+async function runLane(
+  lane: PostLane,
+  token: string,
+  laneBudget: number,
+  stat: LaneStat
+): Promise<Job[]> {
+  // The actor caps per QUERY, so the lane budget is divided out. At least 1, or a lane with
+  // many queries would silently round every one of them down to zero posts.
+  const perQuery = Math.max(1, Math.floor(laneBudget / lane.queries.length));
 
   const res = await fetch(`${ENDPOINT}?token=${encodeURIComponent(token)}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      searchQueries: qs,
+      searchQueries: lane.queries,
       maxPosts: perQuery,
       // The cron is daily, so anything older has already been seen — and `sortBy: date`
       // rather than relevance, because a week-old "relevant" post is a closed role.
@@ -124,6 +230,7 @@ export async function fetchLinkedInPostSearch(): Promise<Job[]> {
 
   const items = (await res.json()) as ApifyPost[];
   if (!Array.isArray(items)) throw new Error('apify post-search returned a non-array dataset');
+  stat.bought = items.length;
 
   const jobs: Job[] = [];
   const seen = new Set<string>();
@@ -147,7 +254,21 @@ export async function fetchLinkedInPostSearch(): Promise<Job[]> {
     const title = headline(m.roleLine, m.matchedRole);
     if (!titleSurvives(title)) continue;
 
-    const applyUrl = m.urls[0];
+    // A DIRECT WAY TO APPLY, which is what separates these rows from the 119 board listings a
+    // day. `classifyUrl` already ranks apply targets for the WhatsApp bridge: green is a
+    // Google Form, yellow an ATS, red everything else — including a link back to LinkedIn's
+    // own listing, which is precisely the thing this source exists NOT to collect.
+    const forms = m.urls.filter((u) => classifyUrl(u) !== 'red');
+    if (m.emails.length === 0 && forms.length === 0) {
+      stat.noContact += 1;
+      if (apifyRequireContact()) continue;
+    }
+    stat.matched += 1;
+
+    // A form beats any other link: it is the thing the poster wants filled in, and it is what
+    // the tailoring pipeline can prefill. Falling back to the first URL keeps the old
+    // behaviour for posts whose route is an ATS page this classifier has not learned.
+    const applyUrl = forms[0] ?? m.urls[0];
     jobs.push({
       id,
       source: 'apify',
@@ -157,13 +278,15 @@ export async function fetchLinkedInPostSearch(): Promise<Job[]> {
       url,
       ...(applyUrl ? { applyUrl } : {}),
       postedAt: post.postedAt?.date ? new Date(post.postedAt.date) : new Date(),
-      // The emails go in tags exactly as the comment miner does it, and since 2026-08-17 they
-      // are read back out by lib/job-contact.ts: an address the poster themselves wrote into
-      // the post is the best contact this project can ever have, and it costs nothing. The
-      // poster's NAME rides along the same way, because it is who the draft will greet.
+      // The emails go in tags exactly as the comment miner does it, and they are read back out
+      // by lib/job-contact.ts: an address the poster themselves wrote into the post is the best
+      // contact this project can ever have, and it costs nothing. The poster's NAME rides along
+      // the same way, because it is who the draft will greet. The lane is tagged too, so a
+      // dashboard row says which scraper paid for it.
       tags: [
         posterTag(post.author?.name, post.author?.type),
         post.author?.info,
+        `lane:${lane.key}`,
         ...m.emails,
       ].filter((t): t is string => Boolean(t)),
       description: content.slice(0, 600),
@@ -171,4 +294,55 @@ export async function fetchLinkedInPostSearch(): Promise<Job[]> {
   }
 
   return jobs;
+}
+
+/**
+ * Search LinkedIn posts for hiring posts matching this profile, one lane per role family.
+ * [] when unconfigured.
+ *
+ * Lanes run in PARALLEL. Discover is already at its 60s ceiling with unstop measured at ~59.9s
+ * locally, so four sequential 45s actor runs would take the whole cron down; in parallel the
+ * source still costs one run's wall-clock. `stats` is an optional sink so a check script can
+ * report where the budget went without this function having to log.
+ */
+export async function fetchLinkedInPostSearch(stats?: LaneStat[]): Promise<Job[]> {
+  const tokens = apifyTokens();
+  const budget = postBudget();
+  const lanes = enabledLanes();
+  if (tokens.length === 0 || budget === 0 || lanes.length === 0) return [];
+
+  const perLane = Math.max(1, Math.floor(budget / lanes.length));
+
+  const settled = await Promise.allSettled(
+    lanes.map((lane, i) => {
+      const stat: LaneStat = { lane: lane.key, bought: 0, matched: 0, noContact: 0 };
+      stats?.push(stat);
+      // Round-robin, so N tokens split the bill across N accounts. With one token every lane
+      // bills it, which is the single-free-plan case and is why the total budget is capped
+      // across lanes rather than per lane.
+      return runLane(lane, tokens[i % tokens.length], perLane, stat).catch((e) => {
+        stat.error = (e as Error).message;
+        throw e;
+      });
+    })
+  );
+
+  // One lane failing must not lose the others. A lane that threw is recorded in its stat and
+  // surfaces through the check script; Discover's own `safe()` wrapper only sees a throw if
+  // EVERY lane fails, which is the case that really is a source outage.
+  const jobs = settled.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
+  if (jobs.length === 0 && settled.every((r) => r.status === 'rejected')) {
+    throw new Error(
+      settled
+        .map((r) => (r.status === 'rejected' ? (r.reason as Error).message : ''))
+        .filter(Boolean)
+        .join(' · ')
+    );
+  }
+
+  // The same post can be bought by two lanes ("product intern" and "founder's office intern"
+  // overlap constantly), and two rows for one post would be two applications.
+  const byId = new Map<string, Job>();
+  for (const j of jobs) if (!byId.has(j.id)) byId.set(j.id, j);
+  return [...byId.values()];
 }

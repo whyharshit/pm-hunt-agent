@@ -41,7 +41,12 @@ import {
   isEditedDraft,
   renderOutreachTemplate,
 } from './outreach-template';
-import { renderJobOutreach } from './job-outreach-template';
+import {
+  EDITED_JOB_MODEL_SUFFIX,
+  isEditedJobDraft,
+  isTeamDraft,
+  renderJobOutreach,
+} from './job-outreach-template';
 import { runJobAutoSend } from './job-autosend';
 import { runJobPrepare } from './job-prepare';
 import { ingestHiringPost } from './paste';
@@ -206,6 +211,66 @@ export async function resetFundingDraft(formData: FormData): Promise<void> {
  * There is no undo, so each button carries a native confirm in the UI. A deleted funding or
  * discovered row also stays in its `seen` set, otherwise the next scan would resurrect it.
  */
+/**
+ * Edit a job application before it goes out. The funding pipeline has had this since
+ * 2026-08-08; job rows were preview-only, so the only options on a draft that read slightly
+ * wrong were send it or delete the row.
+ *
+ * Marking the model `+edited` is the load-bearing part, not the text. Three separate machines
+ * rewrite drafts they believe they own, and all three check this flag:
+ *   - `isCurrentJobTemplate` re-renders stale template drafts on the next prepare pass,
+ *   - `greetingMatches` in the unattended sender re-renders when the recipient changed,
+ *   - `resetJobDraft` below is the only way back.
+ * Without the flag, a hand-edited application would be silently reverted by whichever ran
+ * first, and the user would find the machine's wording in their sent mail.
+ */
+export async function updateJobDraft(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  const text = formData.get('text');
+  const subject = formData.get('subject');
+  if (typeof id !== 'string' || typeof text !== 'string') return;
+  if (!text.trim()) return; // an empty body is never an intended edit
+
+  const existing = await getJobOutreach(id);
+  if (!existing) return;
+  // A sent draft is a RECORD of what somebody received. Editing it would make the dashboard
+  // disagree with their inbox, and the follow-ups quote it.
+  if (existing.sentAt) return;
+
+  await saveJobOutreach(id, {
+    ...existing,
+    text,
+    subject: typeof subject === 'string' && subject.trim() ? subject.trim() : existing.subject,
+    model: isEditedJobDraft(existing.model)
+      ? existing.model
+      : `${existing.model}${EDITED_JOB_MODEL_SUFFIX}`,
+  });
+  revalidatePath('/paste');
+  revalidatePath('/jobs');
+}
+
+/** Drop a hand-edit and go back to the template, so an edit is never a one-way door. */
+export async function resetJobDraft(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  if (typeof id !== 'string') return;
+
+  const [job, contact, existing] = await Promise.all([
+    getJob(id),
+    getJobContact(id),
+    getJobOutreach(id),
+  ]);
+  if (!job || existing?.sentAt) return;
+
+  // Re-render the SAME KIND of draft. Regenerating a team draft as a person draft (or the
+  // reverse) would hand the sender copy whose greeting cannot match its recipient, which it
+  // refuses to send — so a Reset would read as having broken the row.
+  const greeting = existing && isTeamDraft(existing.model) ? 'team' : 'person';
+  const rendered = renderJobOutreach(job, contact, { greeting });
+  if (rendered) await saveJobOutreach(id, rendered);
+  revalidatePath('/paste');
+  revalidatePath('/jobs');
+}
+
 export async function deleteTrackedRow(formData: FormData): Promise<void> {
   const id = formData.get('id');
   if (typeof id !== 'string') return;

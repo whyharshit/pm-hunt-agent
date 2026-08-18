@@ -1,3 +1,5 @@
+import { classifyUrl } from '../classify';
+import { apifyRequireContact, apifyTokens } from './apify-posts';
 import { headline, locationOf, posterTag, titleSurvives } from '../postjob';
 import { matchWhatsappPost } from '../whatsapp/match';
 import type { Job } from '../types';
@@ -16,8 +18,14 @@ import type { Job } from '../types';
 //
 // Requires BOTH env vars. Missing either returns [] silently — an unset optional source
 // must not put a daily error on the agent card.
-//   APIFY_TOKEN               — apify.com API token
+//   APIFY_TOKENS              — apify.com API tokens, pooled (`APIFY_TOKEN` still works)
 //   APIFY_LINKEDIN_PROFILES   — comma-separated aggregator profile URLs
+//   APIFY_MINE_COMMENTS       — the switch that runs this at all; see lib/discover.ts
+//
+// This is the FIFTH scraper of the set the user asked for on 2026-08-18 (product, founder's
+// office/strategy, data, SWE, and this one). The other four are role-family lanes over post
+// SEARCH in lib/sources/apify-posts.ts; this one reaches posts a search never surfaces,
+// which is why it earns a slot rather than being folded in.
 const ACTOR = 'harvestapi~linkedin-profile-comments';
 const ENDPOINT = `https://api.apify.com/v2/acts/${ACTOR}/run-sync-get-dataset-items`;
 
@@ -51,9 +59,12 @@ function profiles(): string[] {
 
 /** Mine aggregator comment feeds for the recruiter posts underneath. [] when unconfigured. */
 export async function fetchLinkedInPostsViaApify(): Promise<Job[]> {
-  const token = process.env.APIFY_TOKEN;
+  const tokens = apifyTokens();
   const profileUrls = profiles();
-  if (!token || profileUrls.length === 0) return [];
+  if (tokens.length === 0 || profileUrls.length === 0) return [];
+  // The LAST token in the pool, so with several accounts configured the comment miner does not
+  // bill the same one as the product lane. With a single token it is that token, unchanged.
+  const token = tokens[tokens.length - 1];
 
   const res = await fetch(`${ENDPOINT}?token=${encodeURIComponent(token)}`, {
     method: 'POST',
@@ -92,7 +103,12 @@ export async function fetchLinkedInPostsViaApify(): Promise<Job[]> {
     const title = headline(m.roleLine, m.matchedRole);
     if (!titleSurvives(title)) continue;
 
-    const applyUrl = m.urls[0];
+    // Same "a direct way to apply, or it is not worth the money" rule as the post lanes.
+    // A mined comment is billed exactly like a bought post, so the economics are identical.
+    const forms = m.urls.filter((u) => classifyUrl(u) !== 'red');
+    if (apifyRequireContact() && m.emails.length === 0 && forms.length === 0) continue;
+
+    const applyUrl = forms[0] ?? m.urls[0];
     jobs.push({
       id,
       source: 'apify',
@@ -109,6 +125,7 @@ export async function fetchLinkedInPostsViaApify(): Promise<Job[]> {
       tags: [
         posterTag(post?.author?.name, undefined),
         post?.author?.info,
+        'lane:comments',
         ...m.emails,
       ].filter((t): t is string => Boolean(t)),
       description: content.slice(0, 600),
