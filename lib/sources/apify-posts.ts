@@ -75,38 +75,39 @@ export const POST_LANES: PostLane[] = [
   {
     key: 'product',
     queries: [
-      'hiring product intern',
-      'product management internship india',
-      'product intern share your resume',
-      'hiring product intern bangalore',
+      'product intern india google form apply',
+      'hiring product intern bangalore share your resume',
+      'product management intern india drop your cv',
+      'hiring product analyst intern india',
     ],
   },
   {
     key: 'founders',
     queries: [
-      "founder's office intern hiring",
-      'strategy intern hiring india',
-      "founder's office internship send your cv",
-      'chief of staff intern india',
+      'startup founders office intern india mail your resume',
+      "founder's office intern bangalore hiring",
+      'chief of staff intern india hiring',
+      'strategy intern india share your resume',
     ],
   },
   {
     key: 'data',
     queries: [
-      'remote data analyst intern hiring india',
-      'remote data science intern hiring',
-      'analytics intern hiring share your resume remote',
+      'remote data analyst intern india share your resume',
+      'remote data science intern hiring drop your cv',
+      'analytics intern hiring remote google form',
     ],
   },
   {
     key: 'swe',
     queries: [
-      'remote software engineer intern hiring india',
-      'remote sde intern hiring india',
-      'backend intern hiring remote drop your resume',
+      'remote software engineer intern india share your resume',
+      'remote sde intern hiring drop your cv',
+      'backend intern hiring remote resume',
     ],
   },
 ];
+
 
 /**
  * Lanes to run this pass. `APIFY_LANES=product,founders` narrows it; empty string = none.
@@ -164,6 +165,30 @@ export function apifyRequireContact(): boolean {
   return !/^(0|false|no)$/i.test(process.env.APIFY_REQUIRE_CONTACT ?? 'true');
 }
 
+/**
+ * How far back a lane looks. DEFAULT `week`, and that default is measured, not assumed:
+ * the shipped queries returned 2 posts at `24h` and 18 at `week`, so the two move together.
+ *
+ * WARNING: IT IS ALSO THE BINDING CONSTRAINT ON NARROW QUERIES, measured 2026-08-18. Four
+ * specific India-phrased queries returned **2 posts in total** at 24h, against 27 for the broad
+ * lane queries - LinkedIn does not produce many posts matching "product intern india google
+ * form apply" on any given day. So the choice is broad-and-recent (which buys global
+ * virtual-internship spam) or narrow-with-a-wider-window.
+ *
+ * Widening costs money in a way that is easy to miss: `seen:ids` dedupes rows AFTER purchase,
+ * so a 7d window on a daily cron re-buys the same posts up to seven times. Only widen
+ * alongside a narrower query set, where the daily volume is small enough for that to be cheap.
+ */
+const POSTED_LIMITS = ['any', '1h', '24h', 'week', 'month'] as const;
+
+function postedLimit(): string {
+  const raw = process.env.APIFY_POSTED_LIMIT?.trim().toLowerCase();
+  // The actor validates this server-side and rejects anything else with a 400, so an
+  // unrecognised value must fall back rather than be sent. Learned by sending '7d' and having
+  // the run refused: the allowed set is exactly the list above, not a duration expression.
+  return raw && (POSTED_LIMITS as readonly string[]).includes(raw) ? raw : 'week';
+}
+
 /** The Discover cron dies at 60s; a sync Apify run that hangs would take it down. */
 const RUN_TIMEOUT_MS = 45_000;
 
@@ -192,6 +217,8 @@ type ApifyPost = {
 /** Per-lane outcome, so a check script can show where the money went. */
 export type LaneStat = {
   lane: PostLane['key'];
+  /** Accounts walked before one answered. >1 means a plan ran dry and failover worked. */
+  accountsWalked: number;
   bought: number;
   matched: number;
   /** Matched the role, but gave no address and no form — the `requireContact` drop. */
@@ -200,9 +227,39 @@ export type LaneStat = {
 };
 
 /** One lane: buy its posts and turn the usable ones into rows. */
+/**
+ * Out of monthly usage, or the token is refused — either way, try the next account.
+ *
+ * Apify answers an exhausted plan with 402, and 401/403 for a revoked or wrong token. The
+ * body check catches the same condition arriving as a 400 with prose, which is how the actor
+ * reports it when the run is rejected before it starts.
+ */
+export function isTokenExhausted(status: number, body: string): boolean {
+  // ⚠️ STATUS FIRST, AND 400 IS NEVER EXHAUSTION. The body check used to run on any status and
+  // matched the word "limit" — which appears in the actor's own validation message for the
+  // `postedLimit` field. One malformed input therefore looked like eight dead accounts and
+  // walked the whole pool before reporting "every apify token exhausted", hiding the real
+  // error. A 400 is our bug and repeats identically on every token.
+  if (status === 400) return false;
+  if (status === 401 || status === 402 || status === 403 || status === 429) return true;
+  return /monthly usage|usage limit|exceeded|insufficient|out of credit|quota|payment required/i.test(
+    body
+  );
+}
+
+/**
+ * One lane: buy its posts and turn the usable ones into rows.
+ *
+ * ⚠️ TAKES THE WHOLE TOKEN POOL, NOT ONE TOKEN. Round-robin assignment alone was fine while
+ * tokens were scarce, but with 8 accounts and 4 lanes it would leave half the pool idle and
+ * still fail the moment a lane's own account ran dry — the free plan is $5 per ACCOUNT, so an
+ * unusable balance elsewhere in the pool is real money left on the table. Each lane STARTS at
+ * its own offset so the lanes spread across accounts, then walks the rest on exhaustion.
+ */
 async function runLane(
   lane: PostLane,
-  token: string,
+  tokens: string[],
+  startAt: number,
   laneBudget: number,
   stat: LaneStat
 ): Promise<Job[]> {
@@ -210,23 +267,35 @@ async function runLane(
   // many queries would silently round every one of them down to zero posts.
   const perQuery = Math.max(1, Math.floor(laneBudget / lane.queries.length));
 
-  const res = await fetch(`${ENDPOINT}?token=${encodeURIComponent(token)}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      searchQueries: lane.queries,
-      maxPosts: perQuery,
-      // The cron is daily, so anything older has already been seen — and `sortBy: date`
-      // rather than relevance, because a week-old "relevant" post is a closed role.
-      postedLimit: '24h',
-      sortBy: 'date',
-    }),
-    signal: AbortSignal.timeout(RUN_TIMEOUT_MS),
-    next: { revalidate: 0 },
-  });
-  if (!res.ok) {
-    throw new Error(`apify post-search ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  let res: Response | null = null;
+  let lastError = '';
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[(startAt + i) % tokens.length];
+    const attempt = await fetch(`${ENDPOINT}?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        searchQueries: lane.queries,
+        maxPosts: perQuery,
+        postedLimit: postedLimit(),
+        // `date` rather than relevance: a week-old "relevant" post is a closed role.
+        sortBy: 'date',
+      }),
+      signal: AbortSignal.timeout(RUN_TIMEOUT_MS),
+      next: { revalidate: 0 },
+    });
+    if (attempt.ok) {
+      res = attempt;
+      stat.accountsWalked = i + 1;
+      break;
+    }
+    const body = (await attempt.text()).slice(0, 200);
+    lastError = `apify post-search ${attempt.status}: ${body}`;
+    // A real fault — a bad actor name, a malformed input — repeats identically on every
+    // token, so failing over would just spend the same error eight times.
+    if (!isTokenExhausted(attempt.status, body)) throw new Error(lastError);
   }
+  if (!res) throw new Error(`every apify token exhausted or refused · ${lastError}`);
 
   const items = (await res.json()) as ApifyPost[];
   if (!Array.isArray(items)) throw new Error('apify post-search returned a non-array dataset');
@@ -315,12 +384,11 @@ export async function fetchLinkedInPostSearch(stats?: LaneStat[]): Promise<Job[]
 
   const settled = await Promise.allSettled(
     lanes.map((lane, i) => {
-      const stat: LaneStat = { lane: lane.key, bought: 0, matched: 0, noContact: 0 };
+      const stat: LaneStat = { lane: lane.key, accountsWalked: 0, bought: 0, matched: 0, noContact: 0 };
       stats?.push(stat);
-      // Round-robin, so N tokens split the bill across N accounts. With one token every lane
-      // bills it, which is the single-free-plan case and is why the total budget is capped
-      // across lanes rather than per lane.
-      return runLane(lane, tokens[i % tokens.length], perLane, stat).catch((e) => {
+      // Each lane starts on a different account and fails over through the rest, so N tokens
+      // are N × $5 of real budget rather than N labels on the same spend.
+      return runLane(lane, tokens, i, perLane, stat).catch((e) => {
         stat.error = (e as Error).message;
         throw e;
       });

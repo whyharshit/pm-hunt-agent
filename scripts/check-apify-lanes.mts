@@ -37,7 +37,7 @@ const jobs = await fetchLinkedInPostSearch(stats);
 console.log('\n--- per lane ---');
 for (const s of stats) {
   console.log(
-    `  ${s.lane.padEnd(9)} bought ${String(s.bought).padStart(3)} · kept ${String(s.matched).padStart(3)}` +
+    `  ${s.lane.padEnd(9)} accts-walked ${s.accountsWalked} · bought ${String(s.bought).padStart(3)} · kept ${String(s.matched).padStart(3)}` +
       ` · dropped-no-contact ${String(s.noContact).padStart(3)}` +
       (s.error ? `  ERROR: ${s.error}` : '')
   );

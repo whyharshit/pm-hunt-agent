@@ -1,5 +1,5 @@
 import { classifyUrl } from '../classify';
-import { apifyRequireContact, apifyTokens } from './apify-posts';
+import { apifyRequireContact, apifyTokens, isTokenExhausted } from './apify-posts';
 import { headline, locationOf, posterTag, titleSurvives } from '../postjob';
 import { matchWhatsappPost } from '../whatsapp/match';
 import type { Job } from '../types';
@@ -62,20 +62,31 @@ export async function fetchLinkedInPostsViaApify(): Promise<Job[]> {
   const tokens = apifyTokens();
   const profileUrls = profiles();
   if (tokens.length === 0 || profileUrls.length === 0) return [];
-  // The LAST token in the pool, so with several accounts configured the comment miner does not
-  // bill the same one as the product lane. With a single token it is that token, unchanged.
-  const token = tokens[tokens.length - 1];
 
-  const res = await fetch(`${ENDPOINT}?token=${encodeURIComponent(token)}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ profiles: profileUrls, maxItems: MAX_ITEMS_PER_PROFILE }),
-    signal: AbortSignal.timeout(RUN_TIMEOUT_MS),
-    next: { revalidate: 0 },
-  });
-  if (!res.ok) {
-    throw new Error(`apify ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  // Starts on the LAST account, so with several configured the comment miner does not bill the
+  // same one as the product lane, then walks backwards through the pool on exhaustion. Same
+  // reasoning as the post lanes: $5 is per account, so an unusable balance elsewhere in the
+  // pool is real money left unspent.
+  let res: Response | null = null;
+  let lastError = '';
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[(tokens.length - 1 - i + tokens.length) % tokens.length];
+    const attempt = await fetch(`${ENDPOINT}?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ profiles: profileUrls, maxItems: MAX_ITEMS_PER_PROFILE }),
+      signal: AbortSignal.timeout(RUN_TIMEOUT_MS),
+      next: { revalidate: 0 },
+    });
+    if (attempt.ok) {
+      res = attempt;
+      break;
+    }
+    const body = (await attempt.text()).slice(0, 200);
+    lastError = `apify ${attempt.status}: ${body}`;
+    if (!isTokenExhausted(attempt.status, body)) throw new Error(lastError);
   }
+  if (!res) throw new Error(`every apify token exhausted or refused · ${lastError}`);
 
   const items = (await res.json()) as ApifyComment[];
   if (!Array.isArray(items)) throw new Error('apify returned a non-array dataset');
