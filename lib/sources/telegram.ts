@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import { headline, titleSurvives } from '../postjob';
+import { headline, locationOf, titleSurvives } from '../postjob';
 import { matchWhatsappPost } from '../whatsapp/match';
 import type { Job } from '../types';
 
@@ -19,11 +19,22 @@ import type { Job } from '../types';
 //   TELEGRAM_CHANNELS — comma-separated channel handles (no @, no URL)
 // Unset returns [] silently: an unconfigured optional source must not put a daily error
 // on the agent card. Same contract as APIFY_LINKEDIN_PROFILES and SERPER_API_KEY.
+//
+// Each handle here has been MEASURED, not guessed — `npx tsx scripts/probe-channels.mts`
+// reports posts/job-ish/matched per handle. That script exists because a dead, renamed or
+// private channel 404s silently inside fetchPage(), so a plausible-looking handle that has
+// never worked is indistinguishable from a channel having a quiet day. Probing 16 guessed
+// handles on 2026-08-18 found 10 of them dead and only one new earner, which is why this
+// list is short rather than optimistic.
 const DEFAULT_CHANNELS = [
   'jobs_and_internships_updates',
   'internfreak',
   'pmjobsindia',
   'goyalarsh',
+  // Added 2026-08-18 after probing: 15 posts, 1 match ("Java Developer Intern"). Modest,
+  // but it is free and non-zero. `jobsandinternshipsindia` is live and busy (36 job-ish
+  // posts) yet matched NOTHING, so it is deliberately not here.
+  'techinternships',
 ];
 
 // Verified live 2026-08-07: the preview serves 20 posts per page and paginates with
@@ -47,7 +58,7 @@ const UA =
 // name: Swiggy Role: AI/ML Intern…"). Caught by running the source, not by tsc.
 const PINNED_WRAPPER_RE = /\bpinned\s+«/;
 
-type ChannelPost = {
+export type ChannelPost = {
   /** Numeric message id — used both for dedupe and as the pagination cursor. */
   msgId: number;
   channel: string;
@@ -56,7 +67,7 @@ type ChannelPost = {
   postedAt: Date;
 };
 
-function channels(): string[] {
+export function channels(): string[] {
   const raw = process.env.TELEGRAM_CHANNELS;
   if (raw === undefined) return DEFAULT_CHANNELS;
   return raw
@@ -115,7 +126,7 @@ async function fetchPage(channel: string, before?: number): Promise<ChannelPost[
   return parsePage(await res.text(), channel);
 }
 
-async function fetchChannel(channel: string): Promise<ChannelPost[]> {
+export async function fetchChannel(channel: string): Promise<ChannelPost[]> {
   const collected = new Map<number, ChannelPost>();
 
   let cursor: number | undefined;
@@ -166,9 +177,12 @@ export async function fetchTelegramChannels(): Promise<Job[]> {
       source: 'tgchannel',
       title,
       company: `via t.me/${post.channel}`,
-      // The matcher already confirmed a remote signal in the body; naming it here keeps
-      // the Discover remote gate agreeing with the decision that got us this far.
-      location: 'Remote',
+      // Read out of the post body, NOT hardcoded 'Remote' as it was until 2026-08-18.
+      // The matcher no longer proves a remote signal — it also admits on-site product
+      // roles in a named Indian city — so asserting Remote here would both mislabel the
+      // row and, because `isRemote()` reads the location back, carry it past the very
+      // gate it never passed. See locationOf() in lib/postjob.ts.
+      location: locationOf(post.text),
       url: post.url,
       ...(m.urls[0] ? { applyUrl: m.urls[0] } : {}),
       postedAt: post.postedAt,

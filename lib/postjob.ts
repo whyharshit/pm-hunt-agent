@@ -1,4 +1,5 @@
 import { HARD_REJECT_TITLE_PATTERNS, INTERN_PATTERNS, ROLE_PATTERNS } from './filters';
+import { firstIndiaCity } from './geo';
 
 /**
  * Shared helpers for sources whose items are FREE-TEXT POSTS rather than structured
@@ -71,4 +72,31 @@ export function headline(roleLine: string, matchedRole: string): string {
  */
 export function titleSurvives(title: string): boolean {
   return isInternText(title) && isRoleText(title) && !isRejectedText(title);
+}
+
+const REMOTE_IN_POST_RE = /\bremote\b|\bwork from home\b|\bwfh\b/i;
+
+/**
+ * Where a free-text post says it is. No location FIELD exists on a LinkedIn or Telegram
+ * post, so this reads it out of the body.
+ *
+ * A named Indian city wins over a remote signal: "Product Intern, Bangalore, hybrid" is a
+ * Bangalore job, and calling it Remote would send it through the wrong branch of `passes()`.
+ * An empty string is the honest answer when the post names neither — it is also the only
+ * answer that cannot satisfy `isOnsiteAllowed`, which is correct for a post that never said
+ * where it is.
+ *
+ * ⚠️ MOVED HERE FROM lib/sources/apify-posts.ts on 2026-08-18, and it is now the ONLY
+ * definition. `telegram.ts` and `apify.ts` both used to hardcode `location: 'Remote'` on the
+ * reasoning that the matcher had already proved a remote signal. That reasoning expired the
+ * moment the matcher started admitting on-site India product roles (lib/whatsapp/match.ts):
+ * a hardcoded 'Remote' would have relabelled an on-site Bangalore role as remote, and since
+ * `isRemote()` reads the location back out of the row, it would have carried EVERY on-site
+ * row past the remote gate — silently turning a narrow product-only allowance into no gate
+ * at all. The two facts have to come from one place.
+ */
+export function locationOf(content: string): string {
+  const city = firstIndiaCity(content);
+  if (city) return `${city}, India`;
+  return REMOTE_IN_POST_RE.test(content) ? 'Remote' : '';
 }

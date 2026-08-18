@@ -6,7 +6,14 @@
  * source checks print, so a dry run is distinguishable from a broken one.
  */
 import { fetchTelegramChannels } from '../lib/sources/telegram';
-import { isIntern, isProductOrOps, isRemote, isHardRejected, passes } from '../lib/filters';
+import {
+  isIntern,
+  isProductOrOps,
+  isRemote,
+  isOnsiteAllowed,
+  isHardRejected,
+  passes,
+} from '../lib/filters';
 
 const channels = process.env.TELEGRAM_CHANNELS;
 console.log(
@@ -20,12 +27,17 @@ console.log(`\nmatched ${jobs.length} posts across the mined channels`);
 
 const internOnly = jobs.filter(isIntern);
 const plusRole = internOnly.filter(isProductOrOps);
-const plusRemote = plusRole.filter(isRemote);
-const final = plusRemote.filter((j) => !isHardRejected(j));
+// Remote OR the on-site India product allowance, which is what `passes()` has asked since
+// 2026-08-17. Filtering on `isRemote` alone (as this did until 2026-08-18) under-reported
+// the source against its own Discover result: it showed `final: 4` on a run where all 10
+// rows passed, which reads as six rows being dropped somewhere unnamed.
+const reachable = plusRole.filter((j) => isRemote(j) || isOnsiteAllowed(j));
+const final = reachable.filter((j) => !isHardRejected(j));
 console.log('funnel:', {
   intern: internOnly.length,
   internAndRole: plusRole.length,
-  plusRemote: plusRemote.length,
+  remoteOnly: plusRole.filter(isRemote).length,
+  plusOnsiteIndia: reachable.length,
   final: final.length,
 });
 

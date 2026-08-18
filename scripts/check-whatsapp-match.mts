@@ -92,6 +92,25 @@ Company: Acme AI
 Remote
 https://forms.gle/mle1`,
   },
+  // On-site India product roles — added 2026-08-18. The first of these was a
+  // shouldREJECT case ("onsite product intern - no remote signal") until that date, and
+  // it is moved here for the same reason the SWE pair above moved: the user reversed the
+  // decision. They asked for on-site and hybrid product internships in India on
+  // 2026-08-17 and `passes()` was changed that day, but this matcher kept its own copy of
+  // the old absolute remote rule and went on killing these posts one layer upstream.
+  {
+    name: 'on-site product intern in India (was a reject case until 2026-08-18)',
+    text: `Role: Product Intern
+Company: Acme
+Location: Bengaluru, in-office
+Apply: https://forms.gle/abc`,
+  },
+  {
+    name: "founder's office intern, on-site Gurugram",
+    text: `Hiring: Founder's Office Intern
+Gurugram · 6 months · stipend 30k
+Mail your CV to hiring@acme.in`,
+  },
 ];
 
 // Posts that MUST NOT be auto-tracked.
@@ -101,13 +120,6 @@ const shouldReject: Case[] = [
     text: `Hiring: Senior Product Manager
 Remote
 Apply https://jobs.lever.co/acme/pm`,
-  },
-  {
-    name: 'onsite product intern — no remote signal',
-    text: `Role: Product Intern
-Company: Acme
-Location: Bengaluru, in-office
-Apply: https://forms.gle/abc`,
   },
   {
     name: 'body merely mentions the words (the broad-text trap)',
@@ -127,6 +139,23 @@ DM me`,
     text: `Opening: Head of Product
 Remote-first company
 careers@acme.io`,
+  },
+  // The two halves of the on-site allowance, each pinned against the obvious drift.
+  // Without these, "on-site product roles in India" reads to a later editor like a
+  // general invitation to drop the remote gate.
+  {
+    name: 'on-site SWE intern in India — product-only, so still rejected',
+    text: `Role: Software Engineer Intern
+Company: Acme
+Location: Bengaluru, in-office
+Apply: https://forms.gle/swe1`,
+  },
+  {
+    name: 'on-site product intern OUTSIDE India — India-only, so still rejected',
+    text: `Role: Product Intern
+Company: Acme
+Location: Berlin, in-office
+Apply: https://forms.gle/berlin1`,
   },
   {
     name: 'not a job post at all',

@@ -1,4 +1,4 @@
-import { headline, posterTag, titleSurvives } from '../postjob';
+import { headline, locationOf, posterTag, titleSurvives } from '../postjob';
 import { matchWhatsappPost } from '../whatsapp/match';
 import type { Job } from '../types';
 
@@ -98,9 +98,9 @@ export async function fetchLinkedInPostsViaApify(): Promise<Job[]> {
       source: 'apify',
       title,
       company: post?.author?.name?.trim() || 'Unknown',
-      // The matcher already confirmed a remote signal in the body; naming it here keeps
-      // the Discover remote gate agreeing with the decision that got us this far.
-      location: 'Remote',
+      // Read out of the post body, not hardcoded 'Remote' — see locationOf() in
+      // lib/postjob.ts for why that assertion stopped being true on 2026-08-18.
+      location: locationOf(content),
       url,
       ...(applyUrl ? { applyUrl } : {}),
       postedAt: item.createdAt ? new Date(item.createdAt) : new Date(),

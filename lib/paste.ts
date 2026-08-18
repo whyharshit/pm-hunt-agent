@@ -1,9 +1,8 @@
 import { createHash } from 'node:crypto';
 import { isGenericEmail } from './contact';
-import { firstIndiaCity } from './geo';
 import { contactFromJob, enrichJobContact, isHiringInbox } from './job-contact';
 import { renderJobOutreach } from './job-outreach-template';
-import { headline, POSTER_TAG } from './postjob';
+import { headline, locationOf, POSTER_TAG } from './postjob';
 import { getJob, saveJobContact, saveJobOutreach, saveJobs } from './storage';
 import { extractUrls } from './classify';
 import { extractEmails, matchWhatsappPost } from './whatsapp/match';
@@ -97,14 +96,13 @@ export async function ingestHiringPost(input: PasteInput): Promise<PasteOutcome>
 
   const postedEmails = extractEmails(text);
   const url = input.url?.trim() || extractUrls(text)[0] || '';
-  const city = firstIndiaCity(text);
 
   const job: Job = {
     id,
     source: 'paste',
     title: titleFor(text, input.role ?? ''),
     company,
-    location: city ? `${city}, India` : /\bremote\b|\bwork from home\b|\bwfh\b/i.test(text) ? 'Remote' : '',
+    location: locationOf(text),
     url,
     postedAt: existing?.postedAt ?? new Date(),
     // The same tag shape the LinkedIn post sources use, so `contactFromJob` reads a pasted

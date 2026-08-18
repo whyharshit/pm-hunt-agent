@@ -1,5 +1,4 @@
-import { firstIndiaCity } from '../geo';
-import { headline, posterTag, titleSurvives } from '../postjob';
+import { headline, locationOf, posterTag, titleSurvives } from '../postjob';
 import { matchWhatsappPost } from '../whatsapp/match';
 import type { Job } from '../types';
 
@@ -75,8 +74,6 @@ const RUN_TIMEOUT_MS = 45_000;
 /** Unpaid internships are out (the user wants paid, same rule Internshala's scraper applies). */
 const UNPAID_RE = /\bunpaid\b|\bno stipend\b|\bstipend\s*[:\-]?\s*(0|nil|none|unpaid)\b/i;
 
-const REMOTE_IN_POST_RE = /\bremote\b|\bwork from home\b|\bwfh\b/i;
-
 /**
  * The shape harvestapi returns, verified against a real 5-post run on 2026-08-17 rather than
  * read off the docs — the Hunter domain-finder episode cost a debugging round to exactly that
@@ -95,20 +92,6 @@ type ApifyPost = {
   };
   postedAt?: { timestamp?: number; date?: string };
 };
-
-/**
- * Where a free-text post says it is. No location FIELD exists on a LinkedIn post, and an
- * empty location can never satisfy `isOnsiteAllowed`, so an on-site Bangalore product
- * internship would be dropped by the very filter change meant to let it in.
- *
- * A named Indian city wins over a remote signal: "Product Intern, Bangalore, hybrid" is a
- * Bangalore job, and calling it Remote would send it through the wrong branch of `passes()`.
- */
-function locationOf(content: string): string {
-  const city = firstIndiaCity(content);
-  if (city) return `${city}, India`;
-  return REMOTE_IN_POST_RE.test(content) ? 'Remote' : '';
-}
 
 /** Search LinkedIn posts for hiring posts matching this profile. [] when unconfigured. */
 export async function fetchLinkedInPostSearch(): Promise<Job[]> {

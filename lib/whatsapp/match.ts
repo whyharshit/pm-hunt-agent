@@ -1,10 +1,12 @@
 import {
   HARD_REJECT_TITLE_PATTERNS,
   INTERN_PATTERNS,
+  PRODUCT_PATTERNS,
   REMOTE_PATTERNS,
   ROLE_PATTERNS,
 } from '../filters';
 import { extractUrls } from '../classify';
+import { firstIndiaCity } from '../geo';
 
 /**
  * Relevance matching for free-text WhatsApp group posts.
@@ -102,8 +104,9 @@ export function extractEmails(text: string): string[] {
 
 /**
  * Score one group post. A post matches when at least one candidate role phrase is
- * both an intern signal and a target-function signal without being hard-rejected,
- * and the post carries a remote signal somewhere in its body.
+ * both an intern signal and a target-function signal without being hard-rejected, and
+ * the post is reachable from India — either remote, or an on-site product role in a
+ * named Indian city, which is the same pair of ways in that `passes()` allows.
  */
 export function matchWhatsappPost(text: string): WhatsappMatch {
   const urls = extractUrls(text);
@@ -134,8 +137,34 @@ export function matchWhatsappPost(text: string): WhatsappMatch {
     else if (!matchedRole) reasons.push('no product/ops/strategy signal in the role line');
   }
 
+  // The location gate MIRRORS `passes()` — it does not re-decide the policy. Until
+  // 2026-08-18 this was an absolute remote requirement, which was a verbatim copy of the
+  // rule `passes()` used to enforce and STOPPED enforcing on 2026-08-17, when the user
+  // asked for on-site product internships in India. The copy here was never updated, so
+  // every free-text source (Telegram, LinkedIn post search, the comment miner, the
+  // WhatsApp bridge) went on rejecting exactly the posts the change existed to admit —
+  // and it rejected them HERE, upstream of `passes()`, so the new allowance never even
+  // got asked. The same two-divergent-copies failure as the Chief-of-Staff bug.
+  //
+  // Measured before changing it (scripts/check-post-match.mts, 152 live Telegram posts):
+  // 99 of 121 job-ish posts died on this one line, and 37 died on it ALONE with every
+  // role signal already satisfied — 6 of those being product roles in a named Indian
+  // city, i.e. rows `passes()` would admit today if they ever reached it.
+  //
+  // ⚠️ The India test is a NAMED CITY, deliberately, and not `isIndiaLocation`. The
+  // sources derive `Job.location` from `firstIndiaCity` too, so admitting on exactly the
+  // signal that will populate the location keeps this decision and the downstream
+  // `isOnsiteAllowed` one in agreement by construction. Admitting on a bare "India" would
+  // let a row through here that `passes()` then drops for having no location — and
+  // `isIndiaLocation` is documented as taking a location field, never prose like this.
   const remote = REMOTE_PATTERNS.some((re) => re.test(text));
-  if (!remote) reasons.push('no remote signal');
+  const onsiteIndiaProduct =
+    matchedRole !== undefined &&
+    PRODUCT_PATTERNS.some((re) => re.test(matchedRole)) &&
+    firstIndiaCity(text) !== null;
+  if (!remote && !onsiteIndiaProduct) {
+    reasons.push('not remote, and not an on-site product role in a named Indian city');
+  }
 
   return {
     matched: reasons.length === 0,
