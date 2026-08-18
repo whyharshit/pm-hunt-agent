@@ -1,4 +1,8 @@
-import { getOutreachSequence, saveOutreachSequence } from './storage';
+import {
+  getAllOutreachSequences,
+  getOutreachSequence,
+  saveOutreachSequence,
+} from './storage';
 import type { OutreachSend, OutreachSequence } from './types';
 
 /**
@@ -173,4 +177,60 @@ export function lastMessageId(seq: OutreachSequence): string | undefined {
 export function lastSentAt(seq: OutreachSequence): Date {
   const last = seq.sends[seq.sends.length - 1];
   return new Date(last?.at ?? seq.nextDueAt ?? Date.now());
+}
+
+
+/**
+ * Every address this project has EVER sent an initial email to, both pipelines, lowercased.
+ *
+ * ⚠️ THE GUARD THIS EXISTS TO PROVIDE IS ACROSS RUNS, AND UNTIL 2026-08-18 THERE WAS NONE.
+ * Both senders deduplicate by address and company inside a single run, which is why the
+ * comment there says "never twice to the same person" — but the only thing stopping a second
+ * email the NEXT morning was per-row state (`draft.sentAt`, `status !== 'new'`), and a row is
+ * one job posting. Two postings from the same company, or one posting arriving from two
+ * sources under different ids, are two rows that never learn about each other. That sent
+ * careers@cloudsecurityweb.com the same application twice.
+ *
+ * A sequence is written by `recordInitialSend` for every send in both pipelines and is never
+ * deleted when it closes, so `followup:all` is the durable record of who has been written to.
+ * Reading it costs one index read plus one pipelined fetch, once per run.
+ */
+export async function mailedAddresses(): Promise<Set<string>> {
+  const all = await getAllOutreachSequences();
+  return new Set(all.map((s) => s.to.trim().toLowerCase()).filter(Boolean));
+}
+
+/**
+ * Of the sequences handed in, the ones whose recipient is ALREADY served by an earlier live
+ * sequence. Returns the later duplicates; the earliest holder of an address is never in it.
+ *
+ * "Earlier" is by first send, not by id: the recipient has seen that thread, and a follow-up
+ * threads against its own root Message-ID, so continuing the older one is the only choice
+ * that lands in the conversation they actually have.
+ *
+ * Closed sequences are ignored deliberately. One that ended because the person REPLIED must
+ * not suppress a later application to the same address forever - that is the sender's job to
+ * prevent up front, and it now does.
+ */
+export async function duplicateRecipientSequences(
+  among: OutreachSequence[]
+): Promise<OutreachSequence[]> {
+  if (among.length === 0) return [];
+  const all = await getAllOutreachSequences();
+
+  const firstSentAt = (s: OutreachSequence) =>
+    s.sends.length > 0 ? Math.min(...s.sends.map((x) => Date.parse(x.at))) : Infinity;
+
+  const earliestByAddress = new Map<string, OutreachSequence>();
+  for (const s of all) {
+    if (s.state !== 'active') continue;
+    const key = s.to.trim().toLowerCase();
+    const held = earliestByAddress.get(key);
+    if (!held || firstSentAt(s) < firstSentAt(held)) earliestByAddress.set(key, s);
+  }
+
+  return among.filter((s) => {
+    const holder = earliestByAddress.get(s.to.trim().toLowerCase());
+    return Boolean(holder) && holder!.id !== s.id;
+  });
 }

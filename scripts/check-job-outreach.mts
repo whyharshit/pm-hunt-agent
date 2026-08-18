@@ -14,7 +14,12 @@
  *     hiring signals" for a project the user describes as "2,000+ sales signals/month".
  *  3. THE ON-SITE ALLOWANCE. On-site is admitted for PRODUCT roles in INDIA and nothing else.
  *     Losing either half turns "allow on-site product interns" into "the remote gate is gone".
+ *  4. WHOSE DOMAIN IT IS. Hunter's domain-finder matches fuzzily, and on 2026-08-18 its one
+ *     candidate for a The/Nudge Institute internship was `aikyamjobs.org` - the job PLATFORM
+ *     the role was listed on. A named person there was sent an application for another
+ *     company's role. A domain must correspond to the company before anything is mailed at it.
  */
+import { domainMatchesCompany } from '../lib/enrich';
 import { isOnsiteAllowed, passes } from '../lib/filters';
 import {
   isTeamDraft,
@@ -234,6 +239,34 @@ check(
 );
 check(isHiringInbox('careers@acme.com'), 'careers@ is recognised as a hiring inbox');
 check(!isHiringInbox('ananya@acme.com'), 'a personal address is not a hiring inbox');
+
+// 4. Whose domain is it? These are the live probe results from the incident, not invented
+//    strings: "The/Nudge Institute" really did return these near-miss candidates.
+check(
+  !domainMatchesCompany('The/Nudge Institute', 'aikyamjobs.org', 'Aikyam Jobs'),
+  'a job PLATFORM is not the employer whose role it lists',
+  "this exact pairing mailed a stranger about another company's internship on 2026-08-18"
+);
+check(
+  !domainMatchesCompany('The/Nudge Institute', 'thenodeinstitute.org', 'The Node Institute'),
+  'a one-character near-miss is not the company'
+);
+check(
+  !domainMatchesCompany('The/Nudge Institute', 'theedgeinstitute.org', 'The Edge Institute'),
+  'nor is a same-shape different name'
+);
+check(
+  domainMatchesCompany('The/Nudge Institute', 'thenudge.org', 'The/Nudge'),
+  'the REAL domain still resolves - this guard must not simply refuse everything'
+);
+check(
+  domainMatchesCompany('Cloud Security Web', 'cloudsecurityweb.com', 'Cloud Security Web'),
+  'an exact match resolves'
+);
+check(
+  domainMatchesCompany('Consint.AI', 'consint.ai', 'Consint'),
+  'punctuation in the company name still resolves (the flatten case)'
+);
 
 console.log(
   failures === 0 ? '\nALL GOOD\n' : `\n${failures} FAILURE(S) — do not deploy\n`

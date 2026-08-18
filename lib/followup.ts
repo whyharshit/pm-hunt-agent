@@ -5,6 +5,7 @@ import { firstName } from './outreach-template';
 import { createPacer, noPacing } from './pace';
 import {
   closeSequence,
+  duplicateRecipientSequences,
   dueAfter,
   greetedIn,
   lastMessageId,
@@ -94,6 +95,22 @@ export async function runFollowUps(opts: { dryRun?: boolean } = {}): Promise<Fol
 
   const due = await getDueSequences(new Date());
 
+  // ⚠️ DUPLICATE RECIPIENTS MULTIPLY HERE, WHICH IS WHY THIS RUNS BEFORE ANYTHING IS SENT.
+  // Until 2026-08-18 neither sender had an across-run address guard, so one address could
+  // open TWO sequences on two different days (careers@cloudsecurityweb.com did). The senders
+  // are fixed, but a duplicate that already exists is worse than the single extra email that
+  // created it: each sequence bumps three times, so the address is queued for six more.
+  //
+  // The EARLIEST sequence survives - it is the one whose thread the recipient has already
+  // seen, and the follow-ups quote their own root Message-ID. The later one is stopped, not
+  // deleted: the send it records really happened, and erasing it would let the backfill adopt
+  // that same sent email all over again.
+  const stale = dryRun ? [] : await duplicateRecipientSequences(due);
+  for (const seq of stale) {
+    await closeSequence(seq, 'stopped', 'duplicate recipient - an earlier sequence has this address');
+  }
+  const staleIds = new Set(stale.map((seq) => seq.id));
+
   const result: FollowUpResult = {
     cap,
     backfilled: backfill?.created ?? 0,
@@ -155,6 +172,7 @@ export async function runFollowUps(opts: { dryRun?: boolean } = {}): Promise<Fol
   try {
     await withImap(async (client) => {
       for (const seq of due) {
+        if (staleIds.has(seq.id)) continue;
         if (seq.state !== 'active') continue;
         const since = lastSentAt(seq);
 

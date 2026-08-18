@@ -117,6 +117,34 @@ type DomainFinderResponse = {
 /** "Consint.AI" and "consint.ai" must compare equal, so strip everything but letters/digits. */
 const flatten = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
+/**
+ * Does `domain` plausibly BELONG to `company`, or is it merely Hunter's closest string match?
+ *
+ * Equality after flattening, or one being a prefix of the other, which is what the real
+ * relationship looks like: "The/Nudge Institute" → thenudge.org, "Consint.AI" → consint.ai.
+ * A prefix needs 5 characters on both sides so that a very short company name cannot be
+ * satisfied by an unrelated domain that happens to start the same way; short names must match
+ * outright.
+ *
+ * Rejects what mailed the wrong organisation: thenudgeinstitute vs aikyamjobs shares nothing,
+ * and thenudgeinstitute vs thenodeinstitute diverges at the fifth character, so neither is a
+ * prefix of the other. Both are exactly the kind of near-miss the domain-finder returns.
+ */
+export function domainMatchesCompany(
+  company: string,
+  domain: string,
+  matchedName?: string
+): boolean {
+  const target = flatten(company);
+  const root = flatten(domain.split('.')[0] ?? '');
+  if (!target || !root) return false;
+
+  const related = (a: string, b: string) =>
+    a === b || (a.length >= 5 && b.length >= 5 && (a.startsWith(b) || b.startsWith(a)));
+
+  return related(target, root) || (Boolean(matchedName) && related(target, flatten(matchedName!)));
+}
+
 export type DomainResolution =
   | { kind: 'resolved'; domain: string; matchedName: string; emailCount: number }
   | { kind: 'ambiguous'; candidates: string[] }
@@ -163,16 +191,45 @@ export async function resolveDomain(company: string): Promise<DomainResolution> 
     emailCount: r.email_count ?? 0,
   });
 
-  if (candidates.length === 1) return accept(candidates[0]);
+  // ⚠️ A LONE CANDIDATE USED TO BE ACCEPTED HERE WITH NO NAME CHECK AT ALL, and on
+  // 2026-08-18 that mailed a real person at the wrong organisation: the job row was a
+  // The/Nudge Institute internship, Hunter's one candidate was `aikyamjobs.org` — the JOB
+  // PLATFORM the role was listed on, not the employer — and the sender wrote to a named
+  // person there asking about a role they had merely advertised.
+  //
+  // The domain-finder does FUZZY string matching and `perfect_match: 'true'` does not make
+  // it exact; probed live the same day, "The/Nudge Institute" returned thenodeinstitute.org,
+  // theedgeinstitute.org and thesurgeinstitute.com. So "Hunter returned exactly one" carries
+  // no information about correctness, and trusting a single candidate MORE than one of
+  // several had the confidence backwards.
+  //
+  // Every candidate must now actually correspond to the company name. The failure mode this
+  // creates is "no domain found", which costs an application that was never going to reach
+  // the right company anyway; the failure mode it removes is a stranger receiving a cold
+  // email about somebody else's job.
+  const usable = candidates.filter((r) => domainMatchesCompany(company, r.domain!, r.company_name));
+  if (usable.length === 1) return accept(usable[0]);
+  if (usable.length === 0) {
+    // Surfaced rather than silently dropped: the candidates ARE Hunter's answer, and a human
+    // reading the row may recognise the right one. Nothing unattended may act on it.
+    return candidates.length > 0
+      ? {
+          kind: 'ambiguous',
+          candidates: candidates.map(
+            (r) => `${r.domain} (${r.email_count ?? 0}, does not match the company name)`
+          ),
+        }
+      : { kind: 'none' };
+  }
 
   // "Consint.AI" → consint.ai, and "Smallest.ai" → smallest.ai, both exact once flattened.
   const target = flatten(company);
-  const exact = candidates.filter(
+  const exact = usable.filter(
     (r) => flatten(r.domain!) === target || flatten(r.domain!.split('.')[0]) === target
   );
   if (exact.length === 1) return accept(exact[0]);
 
-  return { kind: 'ambiguous', candidates: candidates.map((r) => `${r.domain} (${r.email_count ?? 0})`) };
+  return { kind: 'ambiguous', candidates: usable.map((r) => `${r.domain} (${r.email_count ?? 0})`) };
 }
 
 type DomainSearchResponse = {

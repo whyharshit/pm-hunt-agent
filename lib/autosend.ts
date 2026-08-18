@@ -3,7 +3,7 @@ import { sendOutreachMail } from './mailer';
 import { firstName, isEditedDraft, renderOutreachTemplate } from './outreach-template';
 import { createPacer } from './pace';
 import { readResumePdf } from './resume-file';
-import { recordInitialSend } from './sequence';
+import { mailedAddresses, recordInitialSend } from './sequence';
 import { MAX_AGE_DAYS } from './sources/techcrunch';
 import {
   getFundingContacts,
@@ -227,10 +227,18 @@ export async function autoSendCandidates(): Promise<AutoSendCandidate[]> {
   // the single most spam-like thing this could do. The company-level scan dedupe runs at
   // fetch time and cannot catch rows that were already stored separately, so the guard
   // belongs here too, at the last point before sending.
+  //
+  // ⚠️ Those Sets are rebuilt every call, so they only ever saw ONE morning. `alreadyMailed`
+  // is the across-run half, added 2026-08-18 after the job sender — which had the identical
+  // hole — mailed one address on two separate days. Nothing about that failure was specific
+  // to job rows: two funding rows for one company are likewise two rows that never learn
+  // about each other, and only the per-row `sentAt` stood between them.
+  const alreadyMailed = await mailedAddresses();
   const seenAddress = new Set<string>();
   const seenCompany = new Set<string>();
   return out.filter((c) => {
     const address = c.to.toLowerCase();
+    if (alreadyMailed.has(address)) return false;
     const company = c.item.company.toLowerCase().replace(/[^a-z0-9]/g, '');
     if (seenAddress.has(address) || seenCompany.has(company)) return false;
     seenAddress.add(address);

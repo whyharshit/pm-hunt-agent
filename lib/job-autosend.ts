@@ -1,11 +1,12 @@
 import { addressLooksLikePerson, isGenericEmail } from './contact';
+import { domainMatchesCompany } from './enrich';
 import { isHiringInbox } from './job-contact';
 import { isEditedJobDraft, renderJobOutreach, type JobGreeting } from './job-outreach-template';
 import { sendOutreachMail } from './mailer';
 import { firstName } from './outreach-template';
 import { createPacer } from './pace';
 import { readResumePdf } from './resume-file';
-import { recordInitialSend } from './sequence';
+import { mailedAddresses, recordInitialSend } from './sequence';
 import {
   getJobContacts,
   getJobOutreaches,
@@ -70,6 +71,27 @@ export function jobSendCap(): number {
 /** Addresses trusted enough to mail unattended. On a job row the post itself is the best one. */
 function trustedProvenance(e: ContactEmail): boolean {
   return /the job post itself|hunter\.io|added by hand/i.test(e.foundOn);
+}
+
+/**
+ * Does this address belong to the company whose job this is?
+ *
+ * ⚠️ CHECKED AT SEND TIME ON PURPOSE, not only at lookup time. `resolveDomain` was fixed on
+ * 2026-08-18 to stop accepting a domain that merely resembles the company name, but that fix
+ * is forward-looking: contacts enriched BEFORE it are already stored, already drafted, and
+ * still perfectly sendable. The row that mailed a person at `aikyamjobs.org` about a
+ * The/Nudge Institute internship is exactly such a row, and there is no way to know from here
+ * how many others are sitting in the queue with it.
+ *
+ * Only Hunter-derived addresses are tested. An address the poster wrote into their own post
+ * is not required to sit on the employer's domain - people post from gmail accounts, and that
+ * address is still the one they asked to be written to. Hand-added addresses are a human's
+ * decision and are left alone for the same reason.
+ */
+function recipientBelongsToCompany(job: Job, e: ContactEmail): boolean {
+  if (!/hunter\.io/i.test(e.foundOn)) return true;
+  const domain = e.address.split('@')[1] ?? '';
+  return domain !== '' && domainMatchesCompany(job.company, domain);
 }
 
 /**
@@ -143,7 +165,10 @@ export async function jobSendCandidates(): Promise<{
     if (!contact) continue;
 
     const usable = contact.emails.filter(
-      (e) => trustedProvenance(e) && !NEVER_SEND_TO.includes(e.address.toLowerCase())
+      (e) =>
+        trustedProvenance(e) &&
+        !NEVER_SEND_TO.includes(e.address.toLowerCase()) &&
+        recipientBelongsToCompany(job, e)
     );
     if (usable.length === 0) continue;
 
@@ -198,10 +223,17 @@ export async function jobSendCandidates(): Promise<{
   // Never twice to the same person or the same company in one run. Two sources can carry the
   // same role under different ids, and two emails to one recruiter in one morning is the most
   // spam-like thing this could do.
+  //
+  // ⚠️ `alreadyMailed` is the ACROSS-RUN half, and it was missing until 2026-08-18. The Sets
+  // below are rebuilt every call, so they only ever saw one morning; the sole cross-run guard
+  // was per-row (`draft.sentAt`, `status !== 'new'`), and two job rows for one company are two
+  // separate rows. careers@cloudsecurityweb.com received the same application twice that way.
+  const alreadyMailed = await mailedAddresses();
   const seenAddress = new Set<string>();
   const seenCompany = new Set<string>();
   const candidates = out.filter((c) => {
     const address = c.to.toLowerCase();
+    if (alreadyMailed.has(address)) return false;
     const company = c.job.company.toLowerCase().replace(/[^a-z0-9]/g, '');
     if (seenAddress.has(address) || (company && seenCompany.has(company))) return false;
     seenAddress.add(address);
