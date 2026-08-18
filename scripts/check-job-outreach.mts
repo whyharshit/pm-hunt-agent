@@ -156,8 +156,8 @@ check(
   'the sentence degrades gracefully instead of interpolating junk'
 );
 check(
-  headlineDraft?.subject === 'Saw your LinkedIn post, Shivansh from IIT KGP :)',
-  'the subject is the fixed human line',
+  headlineDraft?.subject === 'saw your linkedIn post, shivansh from IIT Kgp :)',
+  'the subject is the fixed human line, in the casing the user supplied',
   headlineDraft?.subject
 );
 check(
@@ -192,7 +192,7 @@ const seq = (over: Partial<OutreachSequence> = {}): OutreachSequence => ({
   company: 'Kily',
   to: 'sharad@kily.com',
   greeted: 'Sharad',
-  subject: 'Saw your LinkedIn post, Shivansh from IIT KGP :)',
+  subject: 'saw your linkedIn post, shivansh from IIT Kgp :)',
   sends: [],
   step: 0,
   state: 'active',

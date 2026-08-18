@@ -7,7 +7,7 @@ import { sendOutreachMail } from './mailer';
 import { firstName } from './outreach-template';
 import { createPacer } from './pace';
 import { readResumePdf } from './resume-file';
-import { mailedAddresses, recordInitialSend } from './sequence';
+import { bouncedAddresses, mailedAddresses, recordInitialSend } from './sequence';
 import {
   getJobContacts,
   getJobOutreaches,
@@ -56,8 +56,22 @@ const NEVER_SEND_TO = [
 /** Applications go stale fast. Matches the window lib/job-prepare.ts drafts within. */
 const MAX_JOB_AGE_DAYS = 21;
 
-/** Pacing budget. Smaller than the founder sender's 70s: it shares the same 300s invocation. */
-const PACE_BUDGET_MS = 40_000;
+/**
+ * Pacing budget, scaled to the batch rather than fixed.
+ *
+ * It shares one 300s invocation with the funding scan, the founder sender (70s), the job
+ * prepare pass and the follow-up pass with its IMAP session — so this cannot simply take the
+ * lot. A fixed 40s was fine at a cap of 3; at the cap of 20 the user asked for on 2026-08-18
+ * it worked out at 2s per message, which fell under the pacer's floor and disabled spacing
+ * altogether. Scaling with the batch keeps roughly 6s between sends while the batch is small
+ * and degrades gracefully when it is not.
+ */
+const PACE_MS_PER_SEND = 6_000;
+const PACE_BUDGET_CEILING_MS = 120_000;
+
+function paceBudgetMs(count: number): number {
+  return Math.min(PACE_BUDGET_CEILING_MS, Math.max(20_000, count * PACE_MS_PER_SEND));
+}
 
 /** How many rows a dry run lists. Enough to judge the queue, short of an unreadable dump. */
 const DRY_RUN_LIST_LIMIT = 25;
@@ -233,12 +247,12 @@ export async function jobSendCandidates(): Promise<{
   // below are rebuilt every call, so they only ever saw one morning; the sole cross-run guard
   // was per-row (`draft.sentAt`, `status !== 'new'`), and two job rows for one company are two
   // separate rows. careers@cloudsecurityweb.com received the same application twice that way.
-  const alreadyMailed = await mailedAddresses();
+  const [alreadyMailed, bounced] = await Promise.all([mailedAddresses(), bouncedAddresses()]);
   const seenAddress = new Set<string>();
   const seenCompany = new Set<string>();
   const candidates = out.filter((c) => {
     const address = c.to.toLowerCase();
-    if (alreadyMailed.has(address)) return false;
+    if (alreadyMailed.has(address) || bounced.has(address)) return false;
     const company = c.job.company.toLowerCase().replace(/[^a-z0-9]/g, '');
     if (seenAddress.has(address) || (company && seenCompany.has(company))) return false;
     seenAddress.add(address);
@@ -297,7 +311,7 @@ export async function runJobAutoSend(opts: { dryRun?: boolean } = {}): Promise<J
   }
 
   await setAgentRunning('job-mailer');
-  const pace = createPacer({ budgetMs: PACE_BUDGET_MS, count: batch.length });
+  const pace = createPacer({ budgetMs: paceBudgetMs(batch.length), count: batch.length });
 
   for (const c of batch) {
     try {

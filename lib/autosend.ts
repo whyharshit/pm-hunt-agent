@@ -3,7 +3,7 @@ import { sendOutreachMail } from './mailer';
 import { firstName, isEditedDraft, renderOutreachTemplate } from './outreach-template';
 import { createPacer } from './pace';
 import { readResumePdf } from './resume-file';
-import { mailedAddresses, recordInitialSend } from './sequence';
+import { bouncedAddresses, mailedAddresses, recordInitialSend } from './sequence';
 import { MAX_AGE_DAYS } from './sources/techcrunch';
 import {
   getFundingContacts,
@@ -233,12 +233,12 @@ export async function autoSendCandidates(): Promise<AutoSendCandidate[]> {
   // hole — mailed one address on two separate days. Nothing about that failure was specific
   // to job rows: two funding rows for one company are likewise two rows that never learn
   // about each other, and only the per-row `sentAt` stood between them.
-  const alreadyMailed = await mailedAddresses();
+  const [alreadyMailed, bounced] = await Promise.all([mailedAddresses(), bouncedAddresses()]);
   const seenAddress = new Set<string>();
   const seenCompany = new Set<string>();
   return out.filter((c) => {
     const address = c.to.toLowerCase();
-    if (alreadyMailed.has(address)) return false;
+    if (alreadyMailed.has(address) || bounced.has(address)) return false;
     const company = c.item.company.toLowerCase().replace(/[^a-z0-9]/g, '');
     if (seenAddress.has(address) || seenCompany.has(company)) return false;
     seenAddress.add(address);

@@ -112,9 +112,13 @@ export function teamPhrase(title: string): string {
  */
 export function jobSubject(job: Job): string {
   const linkedIn = job.source === 'linkedin' || job.source === 'apify' || job.source === 'paste';
+  // ⚠️ VERBATIM, INCLUDING THE CASING. Supplied 2026-08-18 as "use this subject line as it
+  // is": lower-case "saw", lower-case "shivansh", "linkedIn" and "Kgp" exactly as written.
+  // It reads as something typed in a hurry by a person, which is the point of it, and a
+  // tidy-up to sentence case would quietly undo that. The smiley is theirs too.
   return linkedIn
-    ? 'Saw your LinkedIn post, Shivansh from IIT KGP :)'
-    : 'Saw your post, Shivansh from IIT KGP :)';
+    ? 'saw your linkedIn post, shivansh from IIT Kgp :)'
+    : 'saw your post, shivansh from IIT Kgp :)';
 }
 
 /**

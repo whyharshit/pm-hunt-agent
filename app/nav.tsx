@@ -5,7 +5,11 @@ import Link from 'next/link';
  * scrolling past everything to reach anything. Each section is its own route now, and this
  * is the shared switcher.
  */
-export function Nav({ current }: { current: 'home' | 'funding' | 'jobs' | 'paste' }) {
+export function Nav({
+  current,
+}: {
+  current: 'home' | 'funding' | 'jobs' | 'paste' | 'database';
+}) {
   const tab = (href: string, key: typeof current, label: string) => (
     <Link
       key={key}
@@ -26,6 +30,7 @@ export function Nav({ current }: { current: 'home' | 'funding' | 'jobs' | 'paste
       {tab('/funding', 'funding', 'Funding outreach')}
       {tab('/jobs', 'jobs', 'Discovered jobs')}
       {tab('/paste', 'paste', 'Paste a post')}
+      {tab('/database', 'database', 'Database')}
     </nav>
   );
 }

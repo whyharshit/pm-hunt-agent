@@ -44,5 +44,13 @@ export const config = {
   // ⚠️ EVERY dashboard route must be listed here. A route left off is PUBLIC — /funding and
   // /jobs were added to this list the same day they were created for exactly that reason, and
   // /paste both sends email and spends Hunter credits, so it is the worst one to forget.
-  matcher: ['/', '/funding', '/jobs', '/paste', '/api/contacts', '/download/:path*'],
+  matcher: [
+    '/',
+    '/funding',
+    '/jobs',
+    '/paste',
+    '/database',
+    '/api/contacts',
+    '/download/:path*',
+  ],
 };

@@ -234,3 +234,25 @@ export async function duplicateRecipientSequences(
     return Boolean(holder) && holder!.id !== s.id;
   });
 }
+
+/**
+ * Addresses a previous send BOUNCED on, lowercased.
+ *
+ * Repeatedly mailing addresses that do not exist is one of the few things that genuinely
+ * damages a sender's standing with Gmail — far more than wording or send times, which is
+ * where people usually look first. The follow-up runner already detects bounces and closes
+ * those sequences, but nothing stopped the SENDERS from writing to the same address again on
+ * a different row, and Hunter-derived addresses on small Indian startups bounce often.
+ *
+ * Read together with `mailedAddresses` — that one stops a second email to somebody real, this
+ * one stops a second email to somebody who does not exist.
+ */
+export async function bouncedAddresses(): Promise<Set<string>> {
+  const all = await getAllOutreachSequences();
+  return new Set(
+    all
+      .filter((s) => s.state === 'bounced')
+      .map((s) => s.to.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
