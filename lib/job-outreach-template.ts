@@ -1,3 +1,5 @@
+import { categoryLabel } from './job-category';
+import { isPitchTarget } from './filters';
 import { firstName } from './outreach-template';
 import type { Job, JobContact, JobOutreach } from './types';
 
@@ -141,6 +143,19 @@ export function renderJobOutreach(
     ? `I came across your post about ${rolePhrase(job.title)} roles at ${job.company}, and the kind of work you described is exactly what I've been looking for.`
     : `I came across your hiring post for ${job.company}, and the kind of work you described is exactly what I've been looking for.`;
 
+  // A senior posting that published an address gets the PITCH copy instead of the application
+  // copy. Applying to a Senior Product Manager opening would be the wrong email entirely; this
+  // one asks the person hiring for that team whether there is an internship going.
+  //
+  // ⚠️ THE CONDITION IS `isPitchTarget`, NOT `!isIntern`. The looser version routed the Kily
+  // row here — a real paste whose title was a funding announcement, so it named no role and no
+  // seniority — and pitched "about roles at Kily" instead of falling through to the degraded
+  // application sentence that case was written for. A pitch needs a recognised FUNCTION and a
+  // published address, which is exactly what the user asked to pitch to.
+  if (isPitchTarget(job)) {
+    return renderInternshipPitch(job, greeting, person);
+  }
+
   const text = [
     greeting === 'person' ? `Hi ${firstName(person as string)},` : 'Hi team,',
     '',
@@ -177,9 +192,69 @@ export function renderJobOutreach(
   };
 }
 
+/**
+ * The internship PITCH, for a posting that is not itself an internship.
+ *
+ * User's instruction and wording, 2026-08-18: "if someone has posted for APM or senior roles
+ * and have mentioned emails then pitch them for internship", followed by the draft to use.
+ * The body below is their text, kept as they wrote it. It is deliberately much shorter than
+ * the application copy — this email asks a question, it does not make a case, and the four
+ * project bullets belong in the reply if there is one.
+ *
+ * ⚠️ THE CATEGORY IS INTERPOLATED THREE TIMES AND CAN BE EMPTY. `categoryLabel` returns '' for
+ * a title that resolves to no family, and the sentences degrade to "about roles at X …
+ * regarding internship opportunities … contribute to the team" rather than saying "Other
+ * roles". Same rule as `looksLikeRole`: nothing invented reaches a real person's inbox.
+ */
+function renderInternshipPitch(
+  job: Job,
+  greeting: JobGreeting,
+  person: string | undefined
+): JobOutreach {
+  const cat = categoryLabel(job.title);
+  const about = cat ? `${cat} roles` : 'roles';
+  const regarding = cat ? `${cat} internship opportunities` : 'internship opportunities';
+  const team = cat ? `the ${cat} team` : 'the team';
+  const source = job.source === 'linkedin' || job.source === 'apify' || job.source === 'paste'
+    ? 'LinkedIn post'
+    : 'post';
+
+  const text = [
+    greeting === 'person' ? `Hi ${firstName(person as string)},` : 'Hi team,',
+    '',
+    `I came across your ${source} about ${about} at ${job.company} and wanted to reach out regarding ${regarding}.`,
+    '',
+    "I'm Shivansh, a pre-final year student at IIT Kharagpur, with experience across AI, product, growth and startups. I've built agentic AI products, AI-driven GTM systems, and shipped products end-to-end.",
+    '',
+    `I'd love to explore if there's an opportunity to contribute to ${team} as an intern.`,
+    '',
+    'Best,',
+    'Shivansh Chaudhary',
+    'IIT Kharagpur',
+  ].join('\n');
+
+  return {
+    id: job.id,
+    subject: jobSubject(job),
+    text,
+    generatedAt: new Date().toISOString(),
+    // Its own model prefix, so `isTeamDraft` still reads the greeting correctly and a pitch
+    // draft is distinguishable from an application on the dashboard and in storage.
+    model:
+      greeting === 'person'
+        ? `template:job-pitch-${JOB_TEMPLATE_VERSION}`
+        : `template:job-team-pitch-${JOB_TEMPLATE_VERSION}`,
+  };
+}
+
 /** Is this draft the shared-inbox variant? Read off the model string, which is stored. */
 export function isTeamDraft(model: string): boolean {
   return model.startsWith('template:job-team');
+}
+
+/** Is this the pitch variant rather than an application? */
+export function isPitchDraft(model: string): boolean {
+  return model.includes('-pitch-');
 }
 
 /**
@@ -194,11 +269,13 @@ export function isTeamDraft(model: string): boolean {
  * Hand-edited drafts are exempt (`isEditedJobDraft`) and sent ones are never touched, so a
  * bump re-renders exactly the untouched machine-written drafts and nothing else.
  */
-export const JOB_TEMPLATE_VERSION = 'v2';
+export const JOB_TEMPLATE_VERSION = 'v3';
 
 export function isCurrentJobTemplate(model: string): boolean {
   return (
     model === `template:job-${JOB_TEMPLATE_VERSION}` ||
-    model === `template:job-team-${JOB_TEMPLATE_VERSION}`
+    model === `template:job-team-${JOB_TEMPLATE_VERSION}` ||
+    model === `template:job-pitch-${JOB_TEMPLATE_VERSION}` ||
+    model === `template:job-team-pitch-${JOB_TEMPLATE_VERSION}`
   );
 }

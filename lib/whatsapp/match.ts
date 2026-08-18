@@ -1,11 +1,14 @@
 import {
   HARD_REJECT_TITLE_PATTERNS,
   INTERN_PATTERNS,
-  PRODUCT_PATTERNS,
   REMOTE_PATTERNS,
   ROLE_PATTERNS,
 } from '../filters';
-import { extractUrls } from '../classify';
+import { extractEmails, extractUrls } from '../classify';
+
+// Re-exported: this was its home until 2026-08-18, and call sites across the bridge, the
+// sources and lib/paste.ts import it from here.
+export { extractEmails };
 import { firstIndiaCity } from '../geo';
 
 /**
@@ -35,7 +38,6 @@ const HEADLINE_LINES = 3;
  *  openings is judged per-role instead of being killed by one rejected sibling. */
 const ROLE_SPLIT_RE = /\s*(?:[,/|•·]|\band\b|&)\s*/i;
 
-const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
 
 /** "DM me", "ping me", "inbox", "send your CV" — an apply route with no address. */
 const DM_ASK_RE =
@@ -98,10 +100,6 @@ export function looksJobish(text: string): boolean {
   return JOBISH_RE.test(text);
 }
 
-export function extractEmails(text: string): string[] {
-  return Array.from(new Set(text.match(EMAIL_RE) ?? [])).map((e) => e.toLowerCase());
-}
-
 /**
  * Score one group post. A post matches when at least one candidate role phrase is
  * both an intern signal and a target-function signal without being hard-rejected, and
@@ -157,13 +155,14 @@ export function matchWhatsappPost(text: string): WhatsappMatch {
   // `isOnsiteAllowed` one in agreement by construction. Admitting on a bare "India" would
   // let a row through here that `passes()` then drops for having no location — and
   // `isIndiaLocation` is documented as taking a location field, never prose like this.
+  //
+  // Widened 2026-08-18 from product-only to ANY matched role, mirroring `isOnsiteAllowed`
+  // after the user asked for data and SDE on-site too. The role gates above still ran, so
+  // `matchedRole` being set is what keeps this from meaning "any post in an Indian city".
   const remote = REMOTE_PATTERNS.some((re) => re.test(text));
-  const onsiteIndiaProduct =
-    matchedRole !== undefined &&
-    PRODUCT_PATTERNS.some((re) => re.test(matchedRole)) &&
-    firstIndiaCity(text) !== null;
-  if (!remote && !onsiteIndiaProduct) {
-    reasons.push('not remote, and not an on-site product role in a named Indian city');
+  const onsiteIndia = matchedRole !== undefined && firstIndiaCity(text) !== null;
+  if (!remote && !onsiteIndia) {
+    reasons.push('not remote, and not in a named Indian city');
   }
 
   return {

@@ -1,3 +1,4 @@
+import { extractEmails } from './classify';
 import { isIndiaLocation } from './geo';
 import type { Job } from './types';
 
@@ -89,8 +90,16 @@ export const ROLE_PATTERNS: RegExp[] = [
   /\bblockchain\b/i,
 ];
 
-// If a hard-reject term appears anywhere in title, kill it. (Description excludes are too noisy.)
-export const HARD_REJECT_TITLE_PATTERNS: RegExp[] = [
+/**
+ * WRONG DISCIPLINE. Never wanted at any level, so these reject unconditionally.
+ *
+ * Split from the seniority rejects below on 2026-08-18, when the user asked that senior and
+ * APM postings carrying an email be kept and pitched for an internship. That request only
+ * makes sense against the seniority half: a "Senior Product Manager" post is a person worth
+ * writing to, a "Senior Graphic Designer" post is still the wrong discipline. One merged bank
+ * is what made "too senior" and "wrong job" indistinguishable.
+ */
+export const DISCIPLINE_REJECT_TITLE_PATTERNS: RegExp[] = [
   // Non-software engineering disciplines. These replace the blanket `engineer|developer`
   // reject removed on 2026-08-07 when SWE became a target function: "SWE" means software,
   // so a Mechanical/Civil/Chemical Engineering Intern is still off-target. Naming the ~12
@@ -114,6 +123,15 @@ export const HARD_REJECT_TITLE_PATTERNS: RegExp[] = [
   /\bcounseling\b/i,
   /\bclerk\b/i,
   /\btypist\b/i,
+];
+
+/**
+ * TOO SENIOR to be an internship posting. Rejected for ordinary rows, and deliberately NOT
+ * rejected on the internship-pitch path (`isPitchTarget`): the user's instruction 2026-08-18
+ * was that a senior or APM post which publishes an email is a person to write to about an
+ * internship, not a row to discard.
+ */
+export const SENIORITY_REJECT_TITLE_PATTERNS: RegExp[] = [
   /\bdirector\b/i,
   /\bchief executive\b/i,
   /\bchief operating\b/i,
@@ -136,6 +154,16 @@ export const HARD_REJECT_TITLE_PATTERNS: RegExp[] = [
   /\blead\b/i,
 ];
 
+/**
+ * The two banks together. Kept as one exported name because the free-text matcher and the
+ * headline narrowing both test "everything that disqualifies a title", and splitting that
+ * contract would put the seniority question in three places instead of one.
+ */
+export const HARD_REJECT_TITLE_PATTERNS: RegExp[] = [
+  ...DISCIPLINE_REJECT_TITLE_PATTERNS,
+  ...SENIORITY_REJECT_TITLE_PATTERNS,
+];
+
 // Description-level excludes only fire when title also includes excluded role.
 // Kept short and word-bounded to avoid noise.
 export const REMOTE_PATTERNS: RegExp[] = [
@@ -146,28 +174,6 @@ export const REMOTE_PATTERNS: RegExp[] = [
   /\bglobal\b/i,
   /\bwork from home\b/i,
   /\bwfh\b/i,
-];
-
-/**
- * Roles allowed through WITHOUT being remote, when they are in India (user's decision
- * 2026-08-17: "allow onsite/hybrid if it is a product intern"). Deliberately narrower than
- * ROLE_PATTERNS — this is the product family only, not the data/AI/SWE/VC functions, which
- * stay remote-only. Widening it is one line here, but it is the user's call, not a tidy-up.
- *
- * `founder's office` was added the same day, on the user's follow-up instruction, after a
- * single live guest-search run showed the narrow list dropping 16 on-site India rows of which
- * **11 were Founder's Office** — Zamp, Hevo Data, Snapmint, Emergent, Signzy, Z1 Tech and
- * friends. The user's own outreach template pitches them as a "generalist / founder's office"
- * candidate, so those were the best-fit listings in the batch.
- *
- * ⚠️ `chief of staff` is deliberately NOT here. It is the obvious sibling and it was not
- * asked for; one such row (ResultFlow, Bengaluru) is still dropped on-site. One line to add.
- */
-export const PRODUCT_PATTERNS: RegExp[] = [
-  /\bproduct\b/i,
-  /\bapm\b/i,
-  /\bassociate product\b/i,
-  /\bfounder'?s? office\b/i,
 ];
 
 function titleText(j: Job): string {
@@ -204,34 +210,96 @@ export function isHardRejected(j: Job): boolean {
   return HARD_REJECT_TITLE_PATTERNS.some((re) => re.test(j.title));
 }
 
+/** Wrong job entirely, at any level. The half of the reject bank the pitch path still obeys. */
+export function isDisciplineRejected(j: Job): boolean {
+  return DISCIPLINE_REJECT_TITLE_PATTERNS.some((re) => re.test(j.title));
+}
+
 export function isRemote(j: Job): boolean {
   return REMOTE_PATTERNS.some((re) => re.test(broadText(j)));
 }
 
-/** A product-family title, the only kind allowed through on-site. Title-anchored like the rest. */
-export function isProductRole(j: Job): boolean {
-  return PRODUCT_PATTERNS.some((re) => re.test(titleText(j)));
+/**
+ * Roles allowed through WITHOUT being remote, when they are in India.
+ *
+ * HISTORY, because this gate has moved twice and the reasons are not obvious:
+ *  - until 2026-08-17 the remote gate was absolute;
+ *  - then on-site was allowed for the PRODUCT family only (user: "allow onsite/hybrid if it
+ *    is a product intern");
+ *  - since 2026-08-18 it is allowed for every target function. Asked directly whether data
+ *    and SWE should join, the user answered "prefer product most then strategy, growth,
+ *    founder's office etc then data/sde" — which is a yes to all of them WITH an order. The
+ *    order lives in lib/job-category.ts and decides queue position; it is not a gate.
+ *
+ * ⚠️ THE INDIA HALF IS STILL LOAD-BEARING AND IS THE ONLY THING LEFT HERE. Without it this
+ * function is `true` and the remote gate is simply gone, which would fill the dashboard with
+ * on-site US internships nobody here can take. `placeText`, not `broadText`: a US posting
+ * whose blurb mentions "our Bangalore office" is not an Indian job.
+ */
+export function isOnsiteAllowed(j: Job): boolean {
+  return isIndiaLocation(placeText(j));
+}
+
+/** Addresses the posting itself published, from the tags a post source stores and the body. */
+export function publishedEmails(j: Job): string[] {
+  return [
+    ...new Set([
+      ...j.tags.filter((t) => t.includes('@')).flatMap(extractEmails),
+      ...extractEmails(j.description ?? ''),
+    ]),
+  ];
 }
 
 /**
- * The on-site allowance, added 2026-08-17 on the user's instruction ("allow onsite/hybrid if
- * it is a product intern").
+ * Is the posting itself an INTERNSHIP, as opposed to a role this profile is early-career for?
  *
- * Until now the remote gate was absolute, and because it was pushed UPSTREAM into the fetch
- * (Internshala scraped on work-from-home pages only, every LinkedIn query carrying the word
- * "remote") it looked cheap in the funnel while quietly deciding what was even looked for.
- * The good Bangalore and Gurugram internships the user finds by hand were never fetched at
- * all, let alone filtered out.
- *
- * Both halves are load-bearing. Product-only keeps this from becoming "the remote gate is
- * gone" — data, AI, SWE and VC roles are still remote-only. India-only keeps it from becoming
- * "on-site anywhere", which would fill the dashboard with US internships nobody here can take.
+ * Deliberately narrower than `isIntern`, which also matches APM, "associate product",
+ * "founder's office" and "chief of staff" — those are target ROLES for this candidate, but
+ * they are full-time junior postings, not internships. The user named APM alongside senior
+ * roles when asking for the pitch path ("if someone has posted for APM or senior roles and
+ * have mentioned emails then pitch them for internship"), so applying to one as though it
+ * were an internship listing is the wrong email.
  */
-export function isOnsiteAllowed(j: Job): boolean {
-  return isProductRole(j) && isIndiaLocation(placeText(j));
+const INTERNSHIP_WORD_RE =
+  /\bintern\b|\binternship\b|\binterns\b|\btrainee\b|\brotational\b/i;
+
+export function isInternshipPosting(j: Job): boolean {
+  return INTERNSHIP_WORD_RE.test(j.title);
+}
+
+/**
+ * A posting that is NOT an internship, but whose poster is worth writing to about one.
+ *
+ * User's instruction 2026-08-18: "if someone has posted for APM or senior roles and have
+ * mentioned emails then pitch them for internship." Somebody hiring a Senior Product Manager
+ * is hiring for that team, and they published an address to be written to — so the row is a
+ * lead rather than a miss. lib/job-outreach-template.ts renders these with the pitch copy,
+ * which asks about an internship instead of applying to the advertised role.
+ *
+ * THE THREE CONDITIONS ARE ALL NARROW ON PURPOSE, because this admits senior postings that
+ * every previous version of the filters existed to reject:
+ *  0. NOT ITSELF AN INTERNSHIP (`isInternshipPosting`) — those already have a path.
+ *  1. A PUBLISHED ADDRESS. The user's own condition, and it is what makes the row actionable
+ *     rather than another listing. No address, no pitch — Hunter is not asked to find one.
+ *  2. A TARGET FUNCTION, and no rejected discipline. "Senior Product Manager" qualifies;
+ *     "Senior Graphic Designer" does not.
+ *  3. REACHABLE — remote, or in India. Same rule as everything else.
+ */
+export function isPitchTarget(j: Job): boolean {
+  if (isDisciplineRejected(j)) return false;
+  // NOT `isIntern`: that matches APM and founder's office, which are exactly the full-time
+  // junior postings the user asked to pitch rather than apply to.
+  if (isInternshipPosting(j)) return false;
+  if (!isProductOrOps(j)) return false;
+  if (publishedEmails(j).length === 0) return false;
+  return isRemote(j) || isIndiaLocation(placeText(j));
 }
 
 export function passes(j: Job): boolean {
+  // The pitch path is checked FIRST because it deliberately survives the seniority rejects
+  // that the ordinary path applies. It carries its own discipline check, so a Senior Graphic
+  // Designer still dies here.
+  if (isPitchTarget(j)) return true;
   if (isHardRejected(j)) return false;
   if (!isIntern(j) || !isProductOrOps(j)) return false;
   return isRemote(j) || isOnsiteAllowed(j);

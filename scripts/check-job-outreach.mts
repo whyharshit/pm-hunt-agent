@@ -19,8 +19,9 @@
  *     the role was listed on. A named person there was sent an application for another
  *     company's role. A domain must correspond to the company before anything is mailed at it.
  */
+import { categoryLabel, categoryRank } from '../lib/job-category';
 import { domainMatchesCompany } from '../lib/enrich';
-import { isOnsiteAllowed, passes } from '../lib/filters';
+import { isOnsiteAllowed, isPitchTarget, passes } from '../lib/filters';
 import {
   isTeamDraft,
   looksLikeRole,
@@ -71,10 +72,14 @@ check(
   passes(job({ title: 'Founders office Associate', location: 'Mumbai, Maharashtra, India' })),
   'the apostrophe-less spelling counts too'
 );
+// REVERSED 2026-08-18. This asserted the opposite until that date, when the user was asked
+// directly whether on-site India should cover data and SWE and answered "prefer product most
+// then strategy, growth, founder's office etc then data/sde" - a yes with an order. The order
+// is enforced by categoryRank below, not by this gate.
 check(
-  !passes(job({ title: 'Software Engineer Intern' })),
-  'on-site SWE in India is still rejected',
-  'on-site is product + founder\'s office only'
+  passes(job({ title: 'Software Engineer Intern' })),
+  'on-site SWE in India now passes',
+  'ranked last by categoryRank, but no longer gated out'
 );
 check(
   passes(job({ title: 'Software Engineer Intern', location: 'Remote' })),
@@ -266,6 +271,53 @@ check(
 check(
   domainMatchesCompany('Consint.AI', 'consint.ai', 'Consint'),
   'punctuation in the company name still resolves (the flatten case)'
+);
+
+// 5. The 2026-08-18 widening: on-site India for every target function, ranked rather than
+//    gated, plus the internship-pitch path for senior postings that publish an address.
+check(
+  categoryRank('Product Intern') < categoryRank('Growth Intern'),
+  'product outranks growth'
+);
+check(
+  categoryRank('Growth Intern') < categoryRank('SDE Intern'),
+  'growth outranks data/sde',
+  'the cap is 5 a day, so this ordering decides what is actually sent'
+);
+check(categoryLabel("Founder's Office Intern") === "Founder's Office", 'the label reads as a human wrote it');
+check(categoryLabel('Warehouse Picker') === '', 'an unresolved title yields no label, never "Other"');
+
+const senior = job({
+  title: 'Senior Product Manager',
+  location: 'Bengaluru, India',
+  description: 'Write to hiring@acme.com',
+});
+check(isPitchTarget(senior), 'a senior product post WITH an address is a pitch target');
+check(passes(senior), 'and it survives passes(), despite the seniority reject');
+check(
+  !isPitchTarget(job({ title: 'Senior Product Manager', location: 'Bengaluru, India' })),
+  'the same post WITHOUT an address is not',
+  "publishing an address is the user's own condition for pitching"
+);
+check(
+  !isPitchTarget(
+    job({ title: 'Senior Graphic Designer', location: 'Bengaluru, India', description: 'hi@acme.com' })
+  ),
+  'a senior post in the WRONG DISCIPLINE is still rejected',
+  'the pitch path relaxes seniority, never discipline'
+);
+check(
+  !isPitchTarget(job({ title: 'Senior Product Manager', location: 'Berlin', description: 'hi@acme.com' })),
+  'and it must still be reachable — remote, or in India'
+);
+check(
+  isOnsiteAllowed(job({ title: 'SDE Intern', location: 'Bengaluru, India' })),
+  'on-site India now admits SDE too (user, 2026-08-18)'
+);
+check(
+  !isOnsiteAllowed(job({ title: 'Product Intern', location: 'Berlin, Germany' })),
+  'but on-site outside India is still refused',
+  'the India half is the only thing left in that gate'
 );
 
 console.log(

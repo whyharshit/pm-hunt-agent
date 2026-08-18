@@ -1,5 +1,6 @@
 import { addressLooksLikePerson, isGenericEmail } from './contact';
 import { domainMatchesCompany } from './enrich';
+import { byPreference } from './job-category';
 import { isHiringInbox } from './job-contact';
 import { isEditedJobDraft, renderJobOutreach, type JobGreeting } from './job-outreach-template';
 import { sendOutreachMail } from './mailer';
@@ -217,8 +218,12 @@ export async function jobSendCandidates(): Promise<{
     else blockedNoPersonMatch += 1;
   }
 
-  // Freshest posting first: if the cap bites, it should bite on the least timely row.
-  out.sort((a, b) => +new Date(b.job.postedAt) - +new Date(a.job.postedAt));
+  // MOST-WANTED CATEGORY FIRST, then freshest. The daily cap is small (5), so the order here
+  // decides what actually gets sent rather than merely what is listed — and the user's ranking
+  // (2026-08-18) is "product most, then strategy, growth, founder's office, then data/sde".
+  // Sorting by date alone spent the cap on whichever row happened to be newest, which after
+  // the on-site widening is very often an SDE listing.
+  out.sort((a, b) => byPreference(a.job, b.job));
 
   // Never twice to the same person or the same company in one run. Two sources can carry the
   // same role under different ids, and two emails to one recruiter in one morning is the most

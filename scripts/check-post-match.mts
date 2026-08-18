@@ -13,7 +13,7 @@
  */
 import { fetchChannel, channels } from '../lib/sources/telegram';
 import { matchWhatsappPost, looksJobish } from '../lib/whatsapp/match';
-import { PRODUCT_PATTERNS, ROLE_PATTERNS, INTERN_PATTERNS } from '../lib/filters';
+import { ROLE_PATTERNS, INTERN_PATTERNS } from '../lib/filters';
 import { firstIndiaCity } from '../lib/geo';
 
 const list = channels();
@@ -35,7 +35,7 @@ for (const p of jobish) {
   if (m.matched) { matched++; continue; }
   for (const r of m.reasons) reasons.set(r, (reasons.get(r) ?? 0) + 1);
   // The hypothesis under test: posts that clear every ROLE test and die only on remote.
-  if (m.reasons.length === 1 && m.reasons[0] === 'not remote, and not an on-site product role in a named Indian city') onlyRemote.push(p);
+  if (m.reasons.length === 1 && m.reasons[0] === 'not remote, and not in a named Indian city') onlyRemote.push(p);
 }
 
 console.log(`MATCHED: ${matched} / ${jobish.length}`);
@@ -51,7 +51,7 @@ for (const p of onlyRemote) {
   const m = matchWhatsappPost(p.text);
   const city = firstIndiaCity(p.text);
   const role = m.matchedRole ?? '';
-  const product = PRODUCT_PATTERNS.some((re) => re.test(role));
+  const product = role !== '';
   if (city) indiaAny++;
   if (city && product) indiaProduct++;
   console.log(

@@ -111,6 +111,13 @@ Apply: https://forms.gle/abc`,
 Gurugram · 6 months · stipend 30k
 Mail your CV to hiring@acme.in`,
   },
+  {
+    name: 'on-site SWE intern in India (was a reject case until 2026-08-18)',
+    text: `Role: Software Engineer Intern
+Company: Acme
+Location: Bengaluru, in-office
+Apply: https://forms.gle/swe1`,
+  },
 ];
 
 // Posts that MUST NOT be auto-tracked.
@@ -140,16 +147,14 @@ DM me`,
 Remote-first company
 careers@acme.io`,
   },
-  // The two halves of the on-site allowance, each pinned against the obvious drift.
-  // Without these, "on-site product roles in India" reads to a later editor like a
-  // general invitation to drop the remote gate.
-  {
-    name: 'on-site SWE intern in India — product-only, so still rejected',
-    text: `Role: Software Engineer Intern
-Company: Acme
-Location: Bengaluru, in-office
-Apply: https://forms.gle/swe1`,
-  },
+  // The India half of the on-site allowance, pinned against the obvious drift. The ROLE half
+  // was removed on 2026-08-18: asked whether data and SWE should be allowed on-site too, the
+  // user answered "prefer product most then strategy, growth, founder's office etc then
+  // data/sde" — a yes with an order, and the order is a ranking (lib/job-category.ts), not a
+  // gate. The on-site SWE case that used to sit here has moved to MUST MATCH.
+  //
+  // ⚠️ This one case is now the ONLY thing standing between "on-site India is allowed" and
+  // "the remote gate is gone". It must never be deleted for looking redundant.
   {
     name: 'on-site product intern OUTSIDE India — India-only, so still rejected',
     text: `Role: Product Intern

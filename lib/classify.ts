@@ -40,3 +40,16 @@ export function extractUrls(text: string): string[] {
   const matches = text.match(re) ?? [];
   return Array.from(new Set(matches.map((u) => u.replace(/[.,;:)\]]+$/, ''))));
 }
+
+/**
+ * Addresses written into a free-text post.
+ *
+ * Lives here rather than in lib/whatsapp/match.ts because lib/filters.ts needs it for the
+ * internship-pitch path, and match.ts imports filters — putting it there would be a cycle.
+ * This module imports nothing, which is exactly why it is the right home for an extractor.
+ */
+const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
+
+export function extractEmails(text: string): string[] {
+  return Array.from(new Set(text.match(EMAIL_RE) ?? [])).map((e) => e.toLowerCase());
+}
