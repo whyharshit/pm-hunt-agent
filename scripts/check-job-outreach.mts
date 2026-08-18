@@ -320,6 +320,45 @@ check(
   'the India half is the only thing left in that gate'
 );
 
+// 6. The experience bullets must appear in BOTH drafts. The pitch shipped without them for
+//    about an hour on 2026-08-18 and the user's correction was immediate: "use this draft you
+//    have dropped my experiences from it". A cold pitch is exactly where the evidence has to
+//    be, because there is no advertised role to anchor it.
+const pitchDraft = renderJobOutreach(
+  job({ title: 'Senior Growth Manager', location: 'Bengaluru, India', description: 'hi@acme.com' }),
+  { ...contact, people: [{ name: 'Ananya Rao' }] }
+);
+const applyDraft = renderJobOutreach(job({ title: 'Product Intern' }), {
+  ...contact,
+  people: [{ name: 'Ananya Rao' }],
+});
+for (const [label, d] of [['pitch', pitchDraft], ['application', applyDraft]] as const) {
+  check(Boolean(d?.text.includes('Omnidel.ai')), `the ${label} draft carries the projects`);
+  check(
+    Boolean(d?.text.includes('Spring Fest')),
+    `the ${label} draft carries the IIT KGP line`,
+    'supplied 2026-08-18; one definition feeds both drafts so they cannot drift apart'
+  );
+  check(Boolean(d?.text.includes('2,000+')), `the ${label} draft keeps the figures verbatim`);
+}
+check(
+  Boolean(pitchDraft?.text.includes('regarding Growth internship opportunities')),
+  'the pitch asks about an internship, naming the category'
+);
+
+// The analyst trio, in the order the user gave: product analyst, then business, then data.
+check(
+  categoryRank('Product Analyst') < categoryRank('Business Analyst') &&
+    categoryRank('Business Analyst') < categoryRank('Data Analyst'),
+  'product analyst > business analyst > data analyst'
+);
+check(
+  categoryRank('Product Analyst') > categoryRank('Product Manager Intern'),
+  'and all three rank below core product',
+  'Product Analyst contains "product", so it must be matched BEFORE the product family'
+);
+check(categoryLabel('Business Analyst Intern') === 'Business Analyst', 'the analyst labels read correctly');
+
 console.log(
   failures === 0 ? '\nALL GOOD\n' : `\n${failures} FAILURE(S) — do not deploy\n`
 );

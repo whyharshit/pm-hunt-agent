@@ -61,9 +61,20 @@ export default async function PastePage() {
 
         <PasteForm />
 
-        <h2 className="mb-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-          Pasted posts · {jobs.length}
-        </h2>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+            Pasted posts · {jobs.length}
+          </h2>
+          {/* The contact database as a spreadsheet. Generated from the live rows on each click,
+              so it can never be stale the way a synced Google Sheet would be. Opens in Sheets
+              via File > Import, or in Excel directly. */}
+          <a
+            href="/api/contacts"
+            className="h-7 rounded border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Export contacts CSV
+          </a>
+        </div>
 
         {jobs.length === 0 ? (
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
@@ -182,6 +193,22 @@ function PastedRow({
           ) : (
             <p className="mt-2 text-xs text-amber-700 dark:text-amber-500">
               {contact?.note ?? 'No address found in the post, and Hunter had none either.'}
+            </p>
+          )}
+
+          {(contact?.linkedin || contact?.phone) && (
+            <p className="mt-2 flex flex-wrap gap-3 text-xs text-zinc-500 dark:text-zinc-400">
+              {contact.linkedin && (
+                <a
+                  href={contact.linkedin}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="hover:underline"
+                >
+                  LinkedIn profile
+                </a>
+              )}
+              {contact.phone && <span>{contact.phone}</span>}
             </p>
           )}
 

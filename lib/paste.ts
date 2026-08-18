@@ -67,6 +67,16 @@ export type PasteInput = {
   role?: string;
   /** Link to the post itself, so the dashboard row can open it. */
   url?: string;
+  /** The poster's LinkedIn profile, kept for the contact database rather than for sending. */
+  linkedin?: string;
+  /**
+   * An address typed in by hand. Recorded with `added by hand` provenance, which the sender
+   * already trusts — plenty of posts put the address in an image where nothing automated can
+   * read it, and that was the single most common reason a pasted row could not be mailed.
+   */
+  email?: string;
+  /** Phone number. Stored, never used for outreach: this project only sends email. */
+  phone?: string;
 };
 
 /**
@@ -94,7 +104,10 @@ export async function ingestHiringPost(input: PasteInput): Promise<PasteOutcome>
     return { ok: false, message: 'You have already applied to this post.', jobId: id };
   }
 
-  const postedEmails = extractEmails(text);
+  // A hand-typed address joins the ones found in the post, and leads: the user typed it
+  // because they read the post and know it is right, which beats anything parsed out.
+  const typedEmail = input.email?.trim().toLowerCase() ?? '';
+  const postedEmails = [...new Set([...(typedEmail ? [typedEmail] : []), ...extractEmails(text)])];
   const url = input.url?.trim() || extractUrls(text)[0] || '';
 
   const job: Job = {
@@ -120,6 +133,24 @@ export async function ingestHiringPost(input: PasteInput): Promise<PasteOutcome>
   let creditSpent = false;
   let how = 'the post';
 
+  // The hand-typed address is re-stamped as `added by hand`. `contactFromJob` labels
+  // everything it reads as "the job post itself", which for a typed address is simply untrue,
+  // and provenance is read by a human on the dashboard before anything is sent.
+  if (contact && typedEmail) {
+    contact = {
+      ...contact,
+      emails: contact.emails.map((e) =>
+        e.address === typedEmail
+          ? {
+              ...e,
+              foundOn: 'added by hand',
+              ...(input.poster?.trim() ? { person: input.poster.trim() } : {}),
+            }
+          : e
+      ),
+    };
+  }
+
   const hasPerson = contact?.emails.some((e) => e.person) ?? false;
   if (!hasPerson) {
     try {
@@ -141,6 +172,25 @@ export async function ingestHiringPost(input: PasteInput): Promise<PasteOutcome>
         note: `Hunter lookup failed: ${(e as Error).message}`,
       };
     }
+  }
+
+  // The database fields ride on the contact whether or not an email was ever found: a row with
+  // only a LinkedIn profile and a phone number is still worth keeping, and it is the reason
+  // this form collects them.
+  const linkedin = input.linkedin?.trim();
+  const phone = input.phone?.trim();
+  if (linkedin || phone) {
+    contact = {
+      ...(contact ?? {
+        id,
+        people: input.poster?.trim() ? [{ name: input.poster.trim() }] : [],
+        emails: [],
+        foundAt: new Date().toISOString(),
+        model: 'added by hand',
+      }),
+      ...(linkedin ? { linkedin } : {}),
+      ...(phone ? { phone } : {}),
+    };
   }
 
   if (contact) await saveJobContact(id, contact);

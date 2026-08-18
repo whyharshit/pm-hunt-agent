@@ -118,6 +118,33 @@ export function jobSubject(job: Job): string {
 }
 
 /**
+ * The four projects plus the IIT KGP line, in the user's own words and their own figures.
+ *
+ * ⚠️ DO NOT PARAPHRASE THE NUMBERS. 85%, 2,000+, 386, 14, 50+, Rs 7.5L+ and 1000+ are the
+ * user's claims about their own work. The founder pipeline learned this the hard way when a
+ * model was allowed near them and invented "10k+ weekly hiring signals" for a project the
+ * user describes as "2,000+ sales signals/month".
+ *
+ * ONE definition, used by BOTH the application and the pitch draft. They carried separate
+ * copies for about an hour on 2026-08-18 and the pitch immediately fell behind — it shipped
+ * with no bullets at all, which the user noticed as "you have dropped my experiences from it".
+ * The IIT KGP line was supplied in the same message and belongs in both.
+ */
+const EXPERIENCE_BULLETS = [
+  "A few things I've worked on:",
+  '',
+  '- Omnidel.ai: Built agentic AI products, including one that cut quote turnaround time by 85%.',
+  '- mylynk.ai: Built AI-agent GTM systems generating 2,000+ monthly sales signals across 386 BFSI accounts.',
+  '- FabTech: Shipped web products end-to-end for SMB clients, from discovery to launch and optimisation.',
+  '- Lovng: Founding team member of a live-events marketplace operating across 14 cities.',
+  "- IIT KGP: I've led large 50+ members teams for Spring Fest, driving sponsorships ₹7.5L+ and scaling outreach to 1000+ colleges nationwide.",
+];
+
+/** The line that introduces the candidate. Shared for the same reason the bullets are. */
+const INTRO =
+  "I'm Shivansh, a pre-final year student at IIT Kharagpur. I've worked across AI, product, growth and startups, and enjoy solving ambiguous problems and taking them from 0 to 1.";
+
+/**
  * Build the application email, or null when there is nobody to greet.
  *
  * The null is the same rule the founder template follows and for the same reason: this email
@@ -161,14 +188,9 @@ export function renderJobOutreach(
     '',
     opener,
     '',
-    "I'm Shivansh, a pre-final year student at IIT Kharagpur. I've worked across AI, product, growth and startups, and enjoy solving ambiguous problems and taking them from 0 to 1.",
+    INTRO,
     '',
-    "A few things I've worked on:",
-    '',
-    '- Omnidel.ai: Built agentic AI products, including one that cut quote turnaround time by 85%.',
-    '- mylynk.ai: Built AI-agent GTM systems generating 2,000+ monthly sales signals across 386 BFSI accounts.',
-    '- FabTech: Shipped web products end-to-end for SMB clients, from discovery to launch and optimisation.',
-    '- Lovng: Founding team member of a live-events marketplace operating across 14 cities.',
+    ...EXPERIENCE_BULLETS,
     '',
     `I'd love to bring this mix of AI, product and execution to ${job.company} and learn alongside ${teamPhrase(job.title)}.`,
     '',
@@ -197,9 +219,16 @@ export function renderJobOutreach(
  *
  * User's instruction and wording, 2026-08-18: "if someone has posted for APM or senior roles
  * and have mentioned emails then pitch them for internship", followed by the draft to use.
- * The body below is their text, kept as they wrote it. It is deliberately much shorter than
- * the application copy — this email asks a question, it does not make a case, and the four
- * project bullets belong in the reply if there is one.
+ * The body below is their text, kept as they wrote it. It differs from the application copy
+ * only in its opening and closing sentences: the opener says they saw a post about {category}
+ * roles and are asking about a {category} internship, and the closing asks to contribute to
+ * that team as an intern rather than applying to the advertised role.
+ *
+ * ⚠️ IT CARRIES THE FULL EXPERIENCE BULLETS. A first version shipped without them, on the
+ * reasoning that a pitch asks a question rather than making a case. The user's correction was
+ * immediate and explicit: "use this draft you have dropped my experiences from it". A cold
+ * pitch is exactly where the evidence has to be, because there is no advertised role to
+ * anchor it.
  *
  * ⚠️ THE CATEGORY IS INTERPOLATED THREE TIMES AND CAN BE EMPTY. `categoryLabel` returns '' for
  * a title that resolves to no family, and the sentences degrade to "about roles at X …
@@ -216,15 +245,17 @@ function renderInternshipPitch(
   const regarding = cat ? `${cat} internship opportunities` : 'internship opportunities';
   const team = cat ? `the ${cat} team` : 'the team';
   const source = job.source === 'linkedin' || job.source === 'apify' || job.source === 'paste'
-    ? 'LinkedIn post'
-    : 'post';
+    ? 'LinkedIn hiring post'
+    : 'hiring post';
 
   const text = [
     greeting === 'person' ? `Hi ${firstName(person as string)},` : 'Hi team,',
     '',
     `I came across your ${source} about ${about} at ${job.company} and wanted to reach out regarding ${regarding}.`,
     '',
-    "I'm Shivansh, a pre-final year student at IIT Kharagpur, with experience across AI, product, growth and startups. I've built agentic AI products, AI-driven GTM systems, and shipped products end-to-end.",
+    INTRO,
+    '',
+    ...EXPERIENCE_BULLETS,
     '',
     `I'd love to explore if there's an opportunity to contribute to ${team} as an intern.`,
     '',

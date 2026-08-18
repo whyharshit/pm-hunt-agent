@@ -34,6 +34,21 @@ export function PasteForm() {
           <input name="role" placeholder="Role (optional, overrides what's read from the post)" className={field} />
           <input name="url" placeholder="Link to the post (optional)" className={field} />
         </div>
+        {/* The contact database (user's ask, 2026-08-18). These are the details no scraper can
+            reach: plenty of posts put the address in an image, and a profile URL or phone
+            number is worth keeping once found by hand even after the application has gone.
+            A typed email LEADS the ones parsed out of the post and is stamped `added by hand`,
+            which the unattended sender already trusts. */}
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <input
+            name="email"
+            type="email"
+            placeholder="Email (if the post hides it)"
+            className={field}
+          />
+          <input name="linkedin" placeholder="LinkedIn profile URL" className={field} />
+          <input name="phone" placeholder="Phone" className={field} />
+        </div>
         <div className="flex items-center gap-3">
           <button
             type="submit"

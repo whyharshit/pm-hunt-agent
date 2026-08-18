@@ -383,6 +383,9 @@ export async function pasteHiringPost(
       poster: str('poster'),
       role: str('role'),
       url: str('url'),
+      linkedin: str('linkedin'),
+      email: str('email'),
+      phone: str('phone'),
     });
     revalidatePath('/paste');
     revalidatePath('/jobs');

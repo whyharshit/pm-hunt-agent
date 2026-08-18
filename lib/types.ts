@@ -234,6 +234,16 @@ export type JobContact = {
   emails: ContactEmail[];
   /** The company's own domain, once something has established it. */
   website?: string;
+  /**
+   * Contact details a human typed in on /paste, which no scraper can reach.
+   *
+   * Added 2026-08-18 so the pasted rows accumulate into a contact database rather than only
+   * feeding one email each: plenty of posts put the address in an image, and the poster's
+   * LinkedIn profile and phone number are worth keeping once found by hand even when the
+   * application has already gone out.
+   */
+  linkedin?: string;
+  phone?: string;
   foundAt: string;
   /** `post`, `hunter.io`, `added by hand` — how this contact was arrived at. */
   model: string;

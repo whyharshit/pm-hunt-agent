@@ -20,6 +20,9 @@ export type JobCategory =
   | 'founders-office'
   | 'strategy'
   | 'growth'
+  | 'product-analyst'
+  | 'business-analyst'
+  | 'data-analyst'
   | 'data'
   | 'engineering'
   | 'other';
@@ -30,9 +33,15 @@ const RANK: Record<JobCategory, number> = {
   'founders-office': 1,
   strategy: 1,
   growth: 1,
-  data: 2,
-  engineering: 2,
-  other: 3,
+  // The analyst trio, in the order the user gave on 2026-08-18: "add product analyst then
+  // bussiness analyst then data analyst". Three separate ranks rather than one shared rank,
+  // because the order BETWEEN them was the whole point of naming all three.
+  'product-analyst': 2,
+  'business-analyst': 3,
+  'data-analyst': 4,
+  data: 5,
+  engineering: 5,
+  other: 6,
 };
 
 /** How the category reads inside a sentence. Never a slug: this text is sent to people. */
@@ -41,6 +50,9 @@ const LABEL: Record<JobCategory, string> = {
   'founders-office': "Founder's Office",
   strategy: 'Strategy',
   growth: 'Growth',
+  'product-analyst': 'Product Analyst',
+  'business-analyst': 'Business Analyst',
+  'data-analyst': 'Data Analyst',
   data: 'Data',
   engineering: 'Engineering',
   other: '',
@@ -53,6 +65,14 @@ const LABEL: Record<JobCategory, string> = {
  */
 const PATTERNS: Array<[JobCategory, RegExp]> = [
   ['founders-office', /\bfounder'?s? office\b|\bchief of staff\b/i],
+  // WARNING: THE ANALYST TRIO IS TESTED BEFORE THE BROAD FAMILIES, and that order is what
+  // makes the ranking real. "Product Analyst" contains "product" and would otherwise score as
+  // top-rank product; "Business Analyst" and "Data Analyst" would both collapse into `data`.
+  // The user asked for these three in a specific order relative to each other, which can only
+  // happen if they are recognised before the families that would swallow them.
+  ['product-analyst', /\bproduct analyst\b|\bproduct analytics\b/i],
+  ['business-analyst', /\bbusiness analyst\b|\bbiz analyst\b|\bbusiness analytics\b/i],
+  ['data-analyst', /\bdata analyst\b|\bdata analytics\b/i],
   ['product', /\bproduct\b|\bapm\b|\bassociate product\b/i],
   ['growth', /\bgrowth\b|\bgo-?to-?market\b|\bgtm\b|\bpartnerships?\b|\bmarketing\b/i],
   ['strategy', /\bstrateg(y|ic)\b|\boperations?\b|\bops\b|\bbiz ops\b|\bprogram manager\b|\bventure|\bvc\b/i],
