@@ -43,6 +43,7 @@ import {
 } from './outreach-template';
 import {
   EDITED_JOB_MODEL_SUFFIX,
+  isCurrentJobTemplate,
   isEditedJobDraft,
   isTeamDraft,
   renderJobOutreach,
@@ -410,13 +411,28 @@ export async function sendJobEmail(formData: FormData): Promise<void> {
   const to = formData.get('to');
   if (typeof id !== 'string' || typeof to !== 'string') return;
 
-  const [job, draft, contact] = await Promise.all([
+  const [job, stored, contact] = await Promise.all([
     getJob(id),
     getJobOutreach(id),
     getJobContact(id),
   ]);
-  if (!job || !draft) return;
+  if (!job || !stored) return;
   if (!contact?.emails.some((e) => e.address === to)) return;
+
+  // ⚠️ RE-RENDER A STALE-TEMPLATE DRAFT BEFORE SENDING IT, added 2026-08-20. The prepare pass
+  // rewrites old drafts, but it is capped per run, so a row a human clicks Send on today can
+  // still be holding a v3 draft - and every v3 draft on a LinkedIn post row names the POSTER
+  // as the employer. A hand-edited draft is left exactly as the human wrote it: theirs to
+  // send, and the whole point of the edit flag.
+  let draft = stored;
+  if (!isEditedJobDraft(draft.model) && !isCurrentJobTemplate(draft.model)) {
+    const fresh = renderJobOutreach(job, contact, {
+      greeting: isTeamDraft(draft.model) ? 'team' : 'person',
+    });
+    if (!fresh) return;
+    draft = { ...fresh, sentAt: draft.sentAt, sentTo: draft.sentTo };
+    await saveJobOutreach(id, draft);
+  }
 
   try {
     const sent = await sendOutreachMail({

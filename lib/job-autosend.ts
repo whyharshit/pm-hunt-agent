@@ -2,7 +2,12 @@ import { addressLooksLikePerson, isGenericEmail } from './contact';
 import { domainMatchesCompany } from './enrich';
 import { byPreference } from './job-category';
 import { isHiringInbox } from './job-contact';
-import { isEditedJobDraft, renderJobOutreach, type JobGreeting } from './job-outreach-template';
+import {
+  isCurrentJobTemplate,
+  isEditedJobDraft,
+  renderJobOutreach,
+  type JobGreeting,
+} from './job-outreach-template';
 import { sendOutreachMail } from './mailer';
 import { firstName } from './outreach-template';
 import { createPacer } from './pace';
@@ -118,7 +123,10 @@ function trustedProvenance(e: ContactEmail): boolean {
 function recipientBelongsToCompany(job: Job, e: ContactEmail): boolean {
   if (!/hunter\.io/i.test(e.foundOn)) return true;
   const domain = e.address.split('@')[1] ?? '';
-  return domain !== '' && domainMatchesCompany(job.company, domain);
+  // `employerName`, so the comparison is against a COMPANY. Comparing against the raw field
+  // meant comparing a domain to a person's name on every LinkedIn post row, which failed for
+  // the wrong reason and would have started passing the moment somebody "fixed" the field.
+  return domain !== '' && domainMatchesCompany(employerName(job), domain);
 }
 
 /**
@@ -340,8 +348,17 @@ export async function runJobAutoSend(opts: { dryRun?: boolean } = {}): Promise<J
       // The stored draft greets whoever the contact led with at the time it was written. If
       // the chosen recipient has changed since, re-render rather than send an email that
       // addresses somebody else.
+      //
+      // ⚠️ A STALE TEMPLATE IS THE SAME KIND OF PROBLEM, added 2026-08-20. `runJobPrepare`
+      // re-renders old drafts, but it is capped by a draft limit and a time budget, so a row
+      // it did not reach this morning still arrives here holding whatever the template got
+      // wrong when it was written - and the v3 drafts in the queue right now name the LinkEdIn
+      // POSTER as the employer. The version bump only protects anything if the sender checks
+      // it too.
       let draft = c.draft;
-      if (!greetingMatches(draft.text, c.greeting, c.greeted)) {
+      const staleTemplate =
+        !isEditedJobDraft(draft.model) && !isCurrentJobTemplate(draft.model);
+      if (staleTemplate || !greetingMatches(draft.text, c.greeting, c.greeted)) {
         if (isEditedJobDraft(draft.model)) {
           result.failed.push({
             company: companyLabel(c.job),

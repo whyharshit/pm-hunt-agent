@@ -2,7 +2,7 @@
  * Job-outreach contract check — free, no network, no model, no credits:
  *   npx tsx scripts/check-job-outreach.mts
  *
- * Three things are pinned here, each because getting it wrong sends a real email that cannot
+ * Five things are pinned here, each because getting it wrong sends a real email that cannot
  * be recalled:
  *
  *  1. THE TEMPLATE. The user supplied it naming TWO different companies (Policybazaar in the
@@ -18,11 +18,18 @@
  *     candidate for a The/Nudge Institute internship was `aikyamjobs.org` - the job PLATFORM
  *     the role was listed on. A named person there was sent an application for another
  *     company's role. A domain must correspond to the company before anything is mailed at it.
+ *  5. WHO THE EMPLOYER IS, as opposed to who POSTED. A LinkedIn post has no company field, so
+ *     both apify sources used to copy the post's author into `Job.company` - and the template
+ *     interpolates that field twice. A recruiter called Fathima Sajid was therefore mailed an
+ *     application about "Prompt Engineer Generative AI roles at Fathima Sajid" that closed by
+ *     offering to bring the sender's experience "to Fathima Sajid". The greeting and the
+ *     employer are two different questions, and this file keeps them apart.
  */
 import { categoryLabel, categoryRank } from '../lib/job-category';
 import { domainMatchesCompany } from '../lib/enrich';
 import { isOnsiteAllowed, isPitchTarget, passes } from '../lib/filters';
 import {
+  isCurrentJobTemplate,
   isTeamDraft,
   looksLikeRole,
   renderJobOutreach,
@@ -299,6 +306,29 @@ check(
   Boolean(renderJobOutreach(oldRow, posterContact)?.text.includes('roles at Zynetic,')),
   'so an old row can still name the right company',
   renderJobOutreach(oldRow, posterContact)?.text.split('\n')[2]
+);
+
+console.log('\n--- versioning: the drafts already in the queue ---');
+// The bump is what re-renders them, and it only works if a v3 string reads as stale to
+// EVERYTHING that can send: the prepare pass, the unattended sender, and the dashboard button.
+// All three ask this one function.
+for (const old of [
+  'template:job-v3',
+  'template:job-team-v3',
+  'template:job-pitch-v3',
+  'template:job-team-pitch-v3',
+]) {
+  check(!isCurrentJobTemplate(old), `${old} is stale and must be re-rendered`);
+}
+const fresh = renderJobOutreach(job(), contact);
+check(isCurrentJobTemplate(fresh?.model ?? ''), 'a freshly rendered draft is current');
+check(
+  isCurrentJobTemplate(renderJobOutreach(job(), contact, { greeting: 'team' })?.model ?? ''),
+  'and so is a team draft'
+);
+check(
+  !isCurrentJobTemplate(`${fresh?.model}+edited`),
+  'a hand-edited draft is never "current", so nothing rewrites it'
 );
 
 console.log('\n--- template: the "Hi team," variant ---');
