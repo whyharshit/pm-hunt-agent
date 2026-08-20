@@ -74,7 +74,16 @@ async function handle(request: Request) {
   // Its own switch, deliberately not `autosend`: `?jobs=dry` rehearses the job sender alone,
   // `?jobs=off` suppresses it on a scheduled run while founder outreach carries on, and
   // `?jobs=true` forces one by hand. Pausing one pipeline must never silently pause the other.
+  //
+  // ⚠️ `?jobs=prepare` RUNS THE PREPARE PASS AND NOTHING ELSE, added 2026-08-20. Until then
+  // the only way to force a prepare pass by hand was `?jobs=true`, which forces the SENDER in
+  // the same breath — so "re-draft the queue" and "mail twenty people right now" were the same
+  // button, and the honest way to ask for the first was to not ask. `dry` rehearses both,
+  // `prepare` commits the half that writes drafts and mails nobody. It is the same pass the
+  // dashboard's Prepare jobs button runs, which exists because the KV secrets read back
+  // redacted and nothing can reach storage from a shell.
   const jobs = url.searchParams.get('jobs');
+  const prepareJobsOnly = jobs === 'prepare';
   const shouldRunJobs = jobs === 'true' || (isVercelCron && jobs !== 'off');
 
   try {
@@ -101,7 +110,13 @@ async function handle(request: Request) {
     // invocation instead of waiting a day between each step.
     const jobsDry = jobs === 'dry';
     const jobPrepareResult =
-      shouldRunJobs || jobsDry ? await runJobPrepare({ dryRun: jobsDry }) : null;
+      shouldRunJobs || jobsDry || prepareJobsOnly
+        ? // `manual` on a hand-forced pass, exactly as the dashboard button does it: a human
+          // asked for this batch and is reading the result, so it gets the longer clock and the
+          // button's credit allowance rather than the cron's sip.
+          await runJobPrepare({ dryRun: jobsDry, manual: prepareJobsOnly })
+        : null;
+    // NOT on `prepareJobsOnly`. That is the entire point of the switch.
     const jobSendResult =
       shouldRunJobs || jobsDry ? await runJobAutoSend({ dryRun: jobsDry }) : null;
 
