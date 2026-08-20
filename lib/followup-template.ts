@@ -33,9 +33,16 @@ export function followUpSubject(subject: string): string {
  * from a funding round and closes on "congratulations again on the raise", which is nonsense
  * to somebody who posted an internship. Added 2026-08-17 with the job sender.
  */
-function jobBody(step: 1 | 2 | 3, greeted: string, company: string): string {
+function jobBody(step: 1 | 2 | 3, greeted: string, rawCompany: string): string {
   const hi = `Hi ${firstName(greeted)},`;
   const sign = ['Best,', 'Shivansh'];
+  // ⚠️ THE SEQUENCE'S COMPANY CAN BE A PERSON'S NAME OR A PLACEHOLDER. It is copied off the
+  // job row at send time, and every row sent before 2026-08-20 copied the LinkedIn poster's
+  // own name into it (see employerName in lib/postjob.ts). Those sequences are still live and
+  // still due for bumps, so the bump has to disbelieve the field rather than trust it: a
+  // follow-up reading "still very interested in the role at Fathima Sajid" would land in the
+  // same thread as the application that already made that mistake.
+  const company = trustedCompany(rawCompany);
 
   if (step === 1) {
     return [
@@ -43,7 +50,9 @@ function jobBody(step: 1 | 2 | 3, greeted: string, company: string): string {
       '',
       'Just following up on my note below, in case it got buried.',
       '',
-      `Still very interested in the role at ${company}, and happy to share anything else that would be useful.`,
+      company
+        ? `Still very interested in the role at ${company}, and happy to share anything else that would be useful.`
+        : 'Still very interested in the role, and happy to share anything else that would be useful.',
       '',
       ...sign,
     ].join('\n');
@@ -66,10 +75,36 @@ function jobBody(step: 1 | 2 | 3, greeted: string, company: string): string {
     '',
     'I will stop here so I am not adding to your inbox.',
     '',
-    `If the role is still open later, or something else comes up at ${company}, my details are in the thread below.`,
+    company
+      ? `If the role is still open later, or something else comes up at ${company}, my details are in the thread below.`
+      : 'If the role is still open later, or something else comes up, my details are in the thread below.',
     '',
     ...sign,
   ].join('\n');
+}
+
+/**
+ * The company name a stored SEQUENCE can be trusted with, or ''.
+ *
+ * `employerName` does the same job for a job ROW, where the poster's name is available in the
+ * tags to compare against. A sequence carries no tags, so this can only catch the shapes that
+ * are self-evidently not an employer: the placeholders the sources write, and a plain
+ * two-word Firstname Lastname, which is what a LinkedIn poster's name always looks like.
+ *
+ * A false positive costs one dropped clause. A false negative names a stranger.
+ */
+function trustedCompany(raw: string): string {
+  const name = raw.trim();
+  if (!name || /^unknown$/i.test(name) || /^via\s+t\.me\//i.test(name)) return '';
+  // "Fathima Sajid", "Aayush Jain": two or three capitalised words, no company tell anywhere
+  // (no Ltd/Inc/Labs/Technologies, no & or . or digits). Real company names of that shape do
+  // exist, and dropping the clause for them is the cheap half of this trade.
+  const personShaped =
+    /^[A-Z][a-z'’]+(?:\s+[A-Z][a-z'’]+){1,2}$/.test(name) &&
+    !/\b(ltd|limited|inc|llc|llp|plc|pvt|private|corp|co|company|group|labs?|technologies|tech|solutions|systems|studios?|ventures|capital|media|health|foods|motors|bank|institute|foundation|university|college|school|academy|network|works|digital|global|india|ai)\b/i.test(
+      name
+    );
+  return personShaped ? '' : name;
 }
 
 function body(step: 1 | 2 | 3, greeted: string, company: string): string {

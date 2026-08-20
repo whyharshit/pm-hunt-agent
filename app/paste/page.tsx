@@ -3,6 +3,7 @@ import { addressLooksLikePerson, isGenericEmail } from '@/lib/contact';
 import { isHiringInbox } from '@/lib/job-contact';
 import { isEditedJobDraft, isTeamDraft } from '@/lib/job-outreach-template';
 import { fmtDate } from '@/lib/format';
+import { companyLabel } from '@/lib/postjob';
 import { greetedIn } from '@/lib/sequence';
 import { getJobContacts, getJobOutreaches, getRecentJobs } from '@/lib/storage';
 import { DeleteButton } from '../delete-button';
@@ -182,7 +183,7 @@ function PastedRow({
                         // "team" reads correctly in the confirm's `Hi {greeted},`, which is
                         // literally what a team draft opens with.
                         greeted={teamDraft ? 'team' : (greeted ?? '')}
-                        company={job.company}
+                        company={companyLabel(job)}
                         warn={shared || mismatch}
                       />
                     )}

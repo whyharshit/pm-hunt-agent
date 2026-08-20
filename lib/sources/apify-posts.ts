@@ -1,5 +1,5 @@
 import { classifyUrl } from '../classify';
-import { headline, locationOf, posterTag, titleSurvives } from '../postjob';
+import { companyOf, headline, locationOf, posterTag, titleSurvives } from '../postjob';
 import { matchWhatsappPost } from '../whatsapp/match';
 import type { Job } from '../types';
 
@@ -342,7 +342,11 @@ async function runLane(
       id,
       source: 'apify',
       title,
-      company: post.author?.name?.trim() || 'Unknown',
+      // WHO IS HIRING, read out of the post — NOT the author's name. Until 2026-08-20 this
+      // was `post.author?.name`, so a personal profile put a human being into the employer
+      // slot and the template mailed "Prompt Engineer roles at Fathima Sajid" to Fathima.
+      // Empty is the honest answer for a post that never named a company; see companyOf().
+      company: companyOf(content, post.author),
       location: locationOf(content),
       url,
       ...(applyUrl ? { applyUrl } : {}),

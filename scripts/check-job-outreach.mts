@@ -32,7 +32,7 @@ import {
 import { contactFromJob, isHiringInbox } from '../lib/job-contact';
 import { hasHumanPoster } from '../lib/job-prepare';
 import { renderFollowUp } from '../lib/followup-template';
-import { POSTER_TAG } from '../lib/postjob';
+import { companyOf, employerName, POSTER_TAG } from '../lib/postjob';
 import type { Job, JobContact, OutreachSequence } from '../lib/types';
 
 let failures = 0;
@@ -163,6 +163,142 @@ check(
 check(
   !headlineDraft?.subject.includes('Sorin'),
   'the headline never reaches the subject either'
+);
+
+console.log('\n--- template: the poster is not the employer (the 2026-08-20 bug) ---');
+// THE REAL SEND. A LinkedIn post by a recruiter called Fathima Sajid became a row with
+// `company: 'Fathima Sajid'`, because the source copied the post's AUTHOR into the employer
+// field. The template then mailed HER an application about "Prompt Engineer Generative AI
+// roles at Fathima Sajid" which closed by offering to bring the sender's experience "to
+// Fathima Sajid". Both slots, one wrong field, and nothing in between could tell.
+const POSTER = 'Fathima Sajid';
+const posterRow = job({
+  source: 'apify',
+  title: "We're is Hiring: Prompt Engineer Generative AI",
+  company: POSTER,
+  tags: [`${POSTER_TAG}${POSTER}`],
+  location: 'Remote',
+});
+const posterContact: JobContact = {
+  id: 'j1',
+  people: [{ name: POSTER }],
+  emails: [{ address: 'fathima@example.com', foundOn: 'the job post itself', person: POSTER }],
+  foundAt: new Date().toISOString(),
+  model: 'post',
+};
+const posterText = renderJobOutreach(posterRow, posterContact)?.text ?? '';
+check(posterText.startsWith('Hi Fathima,'), 'the poster is still who the email GREETS');
+check(
+  !/(roles|execution) (at|to) Fathima/i.test(posterText),
+  'and is never named as the employer',
+  posterText.split('\n')[2]
+);
+check(
+  (posterText.match(/Fathima/g) ?? []).length === 1,
+  'their name appears exactly once, in the greeting',
+  `found ${(posterText.match(/Fathima/g) ?? []).length}`
+);
+check(
+  posterText.includes('I came across your post about Prompt Engineer Generative AI roles,'),
+  'the announcement is stripped and the clause just ends',
+  posterText.split('\n')[2]
+);
+check(!/ {2,}/.test(posterText), 'no double space where the company used to be');
+check(!/\b(at|to)\s*[,.]/.test(posterText), 'no preposition dangling off a dropped clause');
+check(
+  posterText.includes(
+    "I'd love to bring this mix of AI, product and execution to the engineering team."
+  ),
+  "the closing keeps the user's words and stops at the team",
+  posterText.split('\n').at(-5)
+);
+
+console.log('\n--- rolePhrase: the announcement is not the role ---');
+check(
+  rolePhrase("We're is Hiring: Prompt Engineer Generative AI") === 'Prompt Engineer Generative AI',
+  "the poster's own typo never reaches the email",
+  rolePhrase("We're is Hiring: Prompt Engineer Generative AI")
+);
+check(rolePhrase('Hiring: Product Intern') === 'Product', 'a bare "Hiring:" prefix comes off');
+check(
+  rolePhrase('Urgent opening for Data Analyst Intern') === 'Data Analyst',
+  'so does "Urgent opening for"',
+  rolePhrase('Urgent opening for Data Analyst Intern')
+);
+check(rolePhrase('#Hiring - Growth Intern') === 'Growth', 'the hashtag-and-dash form too');
+check(
+  rolePhrase('Talent Acquisition Intern') === 'Talent Acquisition',
+  'a legitimate title is NOT eaten from the middle'
+);
+check(rolePhrase('We are hiring!') === '', 'an all-announcement title yields nothing at all');
+check(
+  rolePhrase('Product Management Intern') === 'Product Management',
+  'and the ordinary case is unchanged'
+);
+
+console.log('\n--- companyOf: who is hiring, read out of the post ---');
+const co = (text: string, author?: { name?: string; info?: string; type?: string }) =>
+  companyOf(text, author ?? { name: POSTER });
+check(co('We are hiring at Zynetic for a product intern') === 'Zynetic', 'reads "hiring at X"');
+check(co('Zynetic Labs is hiring a product intern') === 'Zynetic Labs', '"X is hiring"');
+check(co('Company: Zynetic\nRole: Product Intern') === 'Zynetic', 'an explicit label');
+check(
+  co(`${POSTER} is hiring a product intern`) === '',
+  'the POSTER is never the answer, however the sentence reads'
+);
+check(
+  co('Hiring a product intern. Share your CV at hr@zynetic.com') === '',
+  'an email DOMAIN is never turned into a company name',
+  'aikyamjobs.org was the platform, not the employer whose role it listed'
+);
+check(co('We are hiring at Bangalore for a product intern') === '', 'a city is not a company');
+check(co('We are hiring at scale across our team') === '', '"at scale" is not a company');
+check(
+  co('We are hiring at Sharma Manpower Solutions for a client') === '',
+  'a staffing agency is not the employer doing the hiring'
+);
+check(
+  co('Product intern wanted, DM me', { name: 'Acme Inc', type: 'company' }) === 'Acme Inc',
+  'a company PAGE really is the employer'
+);
+check(
+  co('Product intern wanted, DM me', { name: POSTER, info: 'Talent Acquisition at Zynetic' }) ===
+    'Zynetic',
+  'the recruiter headline is the last resort'
+);
+check(
+  co("We're is Hiring: Prompt Engineer Generative AI\nMail fathima@example.com") === '',
+  'a contraction is not a company, however capitalised',
+  'the reported post title itself offered "We\'re" as the employer'
+);
+check(co('Hiring a product intern, DM me') === '', 'and otherwise: nothing');
+
+console.log('\n--- employerName: the rows already in storage ---');
+check(employerName(posterRow) === '', 'a stored poster name is disbelieved');
+check(
+  employerName(job({ company: 'Unknown', tags: [] })) === '',
+  "apify's 'Unknown' placeholder is not a company"
+);
+check(
+  employerName(job({ company: 'via t.me/jobs_india', tags: [] })) === '',
+  'nor is a telegram aggregator'
+);
+check(employerName(job({ company: 'Acme', tags: [] })) === 'Acme', 'a real name is trusted');
+// No address in this one: a published address plus a senior function makes the row a PITCH
+// target, which is a different sentence and would not test what this is testing.
+const oldRow = {
+  ...posterRow,
+  description: 'Great news! Zynetic is hiring a product intern. Apply on our careers page.',
+};
+check(
+  employerName(oldRow) === 'Zynetic',
+  'and the real employer is RECOVERED from the stored post when it is in there',
+  employerName(oldRow)
+);
+check(
+  Boolean(renderJobOutreach(oldRow, posterContact)?.text.includes('roles at Zynetic,')),
+  'so an old row can still name the right company',
+  renderJobOutreach(oldRow, posterContact)?.text.split('\n')[2]
 );
 
 console.log('\n--- template: the "Hi team," variant ---');

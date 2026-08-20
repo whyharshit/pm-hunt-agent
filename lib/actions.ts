@@ -50,6 +50,7 @@ import {
 import { runJobAutoSend } from './job-autosend';
 import { runJobPrepare } from './job-prepare';
 import { ingestHiringPost } from './paste';
+import { companyLabel, employerName } from './postjob';
 import { closeSequence, greetedIn, recordInitialSend } from './sequence';
 import type { FundingContact, FundingItem, JobContact, TrackedUrl, WhatsappLead } from './types';
 
@@ -422,7 +423,10 @@ export async function sendJobEmail(formData: FormData): Promise<void> {
       to,
       subject: draft.subject,
       text: draft.text,
-      company: job.company,
+      // Readable label for the agent card; the SEQUENCE below gets the trusted name, because
+      // that one is interpolated into the follow-up bodies. Two different questions - see
+      // employerName/companyLabel in lib/postjob.ts.
+      company: companyLabel(job),
     });
     const sentAt = new Date().toISOString();
     await saveJobOutreach(id, { ...draft, sentAt: draft.sentAt ?? sentAt, sentTo: to });
@@ -430,7 +434,7 @@ export async function sendJobEmail(formData: FormData): Promise<void> {
     await recordInitialSend({
       id,
       kind: 'job',
-      company: job.company,
+      company: employerName(job),
       to,
       greeted: firstName(greetedIn(draft.text) ?? contact?.people[0]?.name ?? ''),
       subject: draft.subject,

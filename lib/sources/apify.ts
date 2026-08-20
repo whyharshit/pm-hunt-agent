@@ -1,6 +1,6 @@
 import { classifyUrl } from '../classify';
 import { apifyRequireContact, apifyTokens, isTokenExhausted } from './apify-posts';
-import { headline, locationOf, posterTag, titleSurvives } from '../postjob';
+import { companyOf, headline, locationOf, posterTag, titleSurvives } from '../postjob';
 import { matchWhatsappPost } from '../whatsapp/match';
 import type { Job } from '../types';
 
@@ -124,15 +124,17 @@ export async function fetchLinkedInPostsViaApify(): Promise<Job[]> {
       id,
       source: 'apify',
       title,
-      company: post?.author?.name?.trim() || 'Unknown',
+      // WHO IS HIRING, read out of the post — NOT the author's name, which until 2026-08-20
+      // was copied here and mailed as the employer. See companyOf() in lib/postjob.ts.
+      company: companyOf(content, post?.author),
       // Read out of the post body, not hardcoded 'Remote' — see locationOf() in
       // lib/postjob.ts for why that assertion stopped being true on 2026-08-18.
       location: locationOf(content),
       url,
       ...(applyUrl ? { applyUrl } : {}),
       postedAt: item.createdAt ? new Date(item.createdAt) : new Date(),
-      // The poster's name rides in a tag so lib/job-contact.ts knows who the draft greets;
-      // `company` holds it too, but there it is indistinguishable from an actual company name.
+      // The poster's name rides in a tag, and ONLY in the tag: it is who the draft greets, and
+      // `company` is who the draft names as the employer. Two different questions.
       tags: [
         posterTag(post?.author?.name, undefined),
         post?.author?.info,

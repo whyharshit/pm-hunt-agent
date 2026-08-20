@@ -1,6 +1,6 @@
 import { isGenericEmail } from './contact';
 import { findPeopleEmails, resolveDomain } from './enrich';
-import { POSTER_TAG } from './postjob';
+import { employerName, POSTER_TAG } from './postjob';
 import { extractEmails } from './whatsapp/match';
 import type { ContactEmail, ContactPerson, Job, JobContact } from './types';
 
@@ -120,8 +120,12 @@ export async function enrichJobContact(
     return { contact: base, creditsSpent: 0, note: 'Hunter already searched this domain' };
   }
 
-  const company = job.company.trim();
-  if (!company || company.toLowerCase() === 'unknown') {
+  // `employerName`, not the raw field: on a LinkedIn post row that field held the POSTER's
+  // name until 2026-08-20, and asking Hunter's domain-finder for the domain of a human being
+  // is how a named person at an unrelated company ends up in the contact list. It refuses the
+  // placeholders ('Unknown', 'via t.me/...') too, which this used to half-do by hand.
+  const company = employerName(job);
+  if (!company) {
     return {
       contact: base,
       creditsSpent: 0,

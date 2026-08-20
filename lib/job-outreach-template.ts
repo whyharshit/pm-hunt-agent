@@ -1,6 +1,7 @@
 import { categoryLabel } from './job-category';
 import { isPitchTarget } from './filters';
 import { firstName } from './outreach-template';
+import { employerName } from './postjob';
 import type { Job, JobContact, JobOutreach } from './types';
 
 /**
@@ -39,21 +40,47 @@ export function isEditedJobDraft(model: string): boolean {
 }
 
 /**
+ * The hiring-announcement noise a post's first line opens with.
+ *
+ * Anchored to the START only, on purpose: the role is in the TAIL ("Hiring: Product Intern"
+ * keeps "Product Intern"), and an unanchored version would eat the middle of a legitimate
+ * title like "Talent Acquisition Intern".
+ */
+const HIRING_PREFIX_RE =
+  // The `(?:is|are)` after the "we" group is not a typo of MINE: the post this was written for
+  // was titled "We're is Hiring: Prompt Engineer Generative AI". Posters write what they write,
+  // and a prefix stripper that only handles grammatical English leaves the ungrammatical ones
+  // in the email.
+  /^(?:we(?:'|’)?(?:re|\s+are|\s+is)?\s*)?(?:\s*(?:is|are)\s+)?(?:#?\s*(?:now|urgently|immediately|currently)\s+)?(?:#?\s*hiring|job\s+(?:alert|opening|opportunit(?:y|ies))s?|(?:immediate|urgent)\s+(?:opening|requirement|vacanc(?:y|ies))s?|vacanc(?:y|ies)|looking\s+for|apply\s+now)\s*(?:for|:|-|–|—|!|\.)*\s*/i;
+
+/**
  * The role as it reads inside "your post about ___ roles".
  *
  * Titles arrive as "Product Management Internship", "Data Analyst Intern", or a whole
  * sentence lifted from a LinkedIn post. The intern words are stripped because the sentence
  * supplies the noun itself: "your post about Product Management Intern roles" is clumsy where
  * "your post about Product Management roles" is what the user actually wrote.
+ *
+ * ⚠️ IT ALSO STRIPS THE ANNOUNCEMENT, added 2026-08-20 from a real send. A post titled
+ * "We're is Hiring: Prompt Engineer Generative AI" (the poster's own typo) went out as "your
+ * post about We're is Hiring: Prompt Engineer Generative AI roles" — the sentence already
+ * says somebody posted about hiring, so repeating it inside the clause is both redundant and
+ * a way for a stranger's typos to end up in the user's email.
  */
 export function rolePhrase(title: string): string {
   const cleaned = title
+    // Leading emoji and rule characters sit in FRONT of the announcement, so they come off
+    // first or HIRING_PREFIX_RE never gets to match.
+    .replace(/^[^\p{L}\p{N}]+/u, '')
+    .replace(HIRING_PREFIX_RE, '')
     .replace(/\b(intern|internship|interns|internships)\b/gi, ' ')
     .replace(/[(){}\[\]|]/g, ' ')
     .replace(/\s*[-–—:,]\s*$/, '')
     .replace(/\s+/g, ' ')
     .trim();
-  return cleaned || 'the';
+  // '' rather than 'the'. A title that is ALL announcement ("We are hiring!") has to drop the
+  // clause, not write "your post about the roles"; the callers below check for the empty string.
+  return cleaned;
 }
 
 /**
@@ -168,11 +195,21 @@ export function renderJobOutreach(
   const greeting = opts.greeting ?? 'person';
   if (greeting === 'person' && !person) return null;
 
-  // Only name the role when the title really is one. Otherwise the sentence drops the clause
-  // rather than interpolating a headline into it — see looksLikeRole.
-  const opener = looksLikeRole(job.title)
-    ? `I came across your post about ${rolePhrase(job.title)} roles at ${job.company}, and the kind of work you described is exactly what I've been looking for.`
-    : `I came across your hiring post for ${job.company}, and the kind of work you described is exactly what I've been looking for.`;
+  // ⚠️ TWO SLOTS, TWO SEPARATE QUESTIONS, AND EITHER CAN BE UNANSWERABLE. `role` is empty when
+  // the title is a post headline rather than a job title (see looksLikeRole); `company` is
+  // empty when nothing ever told us who is hiring (see employerName). Each missing answer
+  // drops its own clause. Interpolating whatever happened to be in the field is precisely the
+  // bug the user reported on 2026-08-20 — "roles at Fathima Sajid", the poster's own name.
+  const role = looksLikeRole(job.title) ? rolePhrase(job.title) : '';
+  const company = employerName(job);
+
+  const opener = role
+    ? company
+      ? `I came across your post about ${role} roles at ${company}, and the kind of work you described is exactly what I've been looking for.`
+      : `I came across your post about ${role} roles, and the kind of work you described is exactly what I've been looking for.`
+    : company
+      ? `I came across your hiring post for ${company}, and the kind of work you described is exactly what I've been looking for.`
+      : `I came across your hiring post, and the kind of work you described is exactly what I've been looking for.`;
 
   // A senior posting that published an address gets the PITCH copy instead of the application
   // copy. Applying to a Senior Product Manager opening would be the wrong email entirely; this
@@ -184,7 +221,7 @@ export function renderJobOutreach(
   // application sentence that case was written for. A pitch needs a recognised FUNCTION and a
   // published address, which is exactly what the user asked to pitch to.
   if (isPitchTarget(job)) {
-    return renderInternshipPitch(job, greeting, person);
+    return renderInternshipPitch(job, greeting, person, company);
   }
 
   const text = [
@@ -196,7 +233,12 @@ export function renderJobOutreach(
     '',
     ...EXPERIENCE_BULLETS,
     '',
-    `I'd love to bring this mix of AI, product and execution to ${job.company} and learn alongside ${teamPhrase(job.title)}.`,
+    // Same rule as the opener: with no company to name, the sentence keeps the user's words
+    // and simply stops at the team. "to  and learn alongside the engineering team" is the
+    // shape of email that gets deleted on sight.
+    company
+      ? `I'd love to bring this mix of AI, product and execution to ${company} and learn alongside ${teamPhrase(job.title)}.`
+      : `I'd love to bring this mix of AI, product and execution to ${teamPhrase(job.title)}.`,
     '',
     'Best,',
     'Shivansh Chaudhary',
@@ -242,7 +284,10 @@ export function renderJobOutreach(
 function renderInternshipPitch(
   job: Job,
   greeting: JobGreeting,
-  person: string | undefined
+  person: string | undefined,
+  // Passed in rather than re-derived, so the pitch and the application can never disagree
+  // about whether the employer is known. Empty means the post never named one.
+  company: string
 ): JobOutreach {
   const cat = categoryLabel(job.title);
   const about = cat ? `${cat} roles` : 'roles';
@@ -255,7 +300,9 @@ function renderInternshipPitch(
   const text = [
     greeting === 'person' ? `Hi ${firstName(person as string)},` : 'Hi team,',
     '',
-    `I came across your ${source} about ${about} at ${job.company} and wanted to reach out regarding ${regarding}.`,
+    company
+      ? `I came across your ${source} about ${about} at ${company} and wanted to reach out regarding ${regarding}.`
+      : `I came across your ${source} about ${about} and wanted to reach out regarding ${regarding}.`,
     '',
     INTRO,
     '',
@@ -304,7 +351,10 @@ export function isPitchDraft(model: string): boolean {
  * Hand-edited drafts are exempt (`isEditedJobDraft`) and sent ones are never touched, so a
  * bump re-renders exactly the untouched machine-written drafts and nothing else.
  */
-export const JOB_TEMPLATE_VERSION = 'v3';
+// v4, 2026-08-20: the employer slot no longer accepts the poster's name, and the role slot no
+// longer accepts a "We're hiring:" announcement. Every untouched v3 draft in the queue was
+// written with one or both, so they MUST be re-rendered rather than sent.
+export const JOB_TEMPLATE_VERSION = 'v4';
 
 export function isCurrentJobTemplate(model: string): boolean {
   return (

@@ -1,4 +1,5 @@
 import { categoryLabel } from '@/lib/job-category';
+import { companyLabel } from '@/lib/postjob';
 import { fmtDate } from '@/lib/format';
 import { getJobContacts, getJobOutreaches, getRecentJobs } from '@/lib/storage';
 import { Nav } from '../nav';
@@ -131,7 +132,7 @@ export default async function DatabasePage() {
                     className="border-t border-zinc-100 align-top dark:border-zinc-900"
                   >
                     <td className="px-3 py-2 font-medium text-zinc-900 dark:text-zinc-100">
-                      {e.job.company}
+                      {companyLabel(e.job)}
                     </td>
                     <td className="max-w-[18rem] px-3 py-2 text-zinc-700 dark:text-zinc-300">
                       {e.job.url ? (

@@ -5,6 +5,7 @@ import {
   renderJobOutreach,
   type JobGreeting,
 } from './job-outreach-template';
+import { companyLabel } from './postjob';
 import {
   getJobContacts,
   getJobOutreaches,
@@ -314,7 +315,7 @@ export async function runJobPrepare(
       }
     } catch (e) {
       const msg = (e as Error).message;
-      result.errors.push(`${job.company}: ${msg}`);
+      result.errors.push(`${companyLabel(job)}: ${msg}`);
       // Out of credits or throttled: stop rather than hammer Hunter once per remaining row.
       if (/\b429\b|credit|exhausted/i.test(msg)) break;
     }

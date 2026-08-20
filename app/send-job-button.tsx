@@ -40,6 +40,11 @@ export function SendJobButton({
   to: string;
   /** The name the draft opens with, so the confirm can show it beside the address. */
   greeted: string;
+  /**
+   * How the row reads, for the confirm. May be a "posted by <name>" label rather than a
+   * company: a LinkedIn post that never named its employer has no company name, and inventing
+   * one here would misreport what the email about to go out actually says.
+   */
   company: string;
   /** True when the address is a shared inbox or does not match the greeting. */
   warn?: boolean;
@@ -49,7 +54,8 @@ export function SendJobButton({
       action={sendJobEmail}
       onSubmit={(e) => {
         const opens = greeted ? `It opens "Hi ${greeted},".` : 'It has no greeting.';
-        if (!confirm(`Send the ${company} application to ${to}?\n\n${opens}\n\nThis cannot be undone.`)) {
+        const row = company ? `\n\nRow: ${company}` : '';
+        if (!confirm(`Send this application to ${to}?${row}\n\n${opens}\n\nThis cannot be undone.`)) {
           e.preventDefault();
         }
       }}

@@ -5,6 +5,7 @@ import { isGenericEmail } from '@/lib/contact';
 import { jobSendCandidates, jobSendCap } from '@/lib/job-autosend';
 import { isHiringInbox } from '@/lib/job-contact';
 import { hasHumanPoster } from '@/lib/job-prepare';
+import { companyLabel } from '@/lib/postjob';
 import { DeleteButton } from '../delete-button';
 import { Nav } from '../nav';
 import { PrepareJobsButton, SendEligibleJobsButton } from '../prepare-jobs-button';
@@ -78,7 +79,7 @@ function OutreachLine({
             id={job.id}
             to={wouldSendTo}
             greeted={team ? 'team' : (person.person ?? '')}
-            company={job.company}
+            company={companyLabel(job)}
           />
         )}
       </div>
@@ -266,7 +267,8 @@ export default async function JobsPage({
                 </a>
                 <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
                   <span>
-                    {j.company} · {j.location || 'remote'} · <span className="italic">{j.source}</span>
+                    {companyLabel(j)} · {j.location || 'remote'} ·{' '}
+                    <span className="italic">{j.source}</span>
                     {j.salary ? ` · ${j.salary}` : ''} · {fmtDate(j.postedAt)}
                   </span>
                   <DeleteButton id={j.id} action={deleteJobRow} what={`“${j.title}”`} />

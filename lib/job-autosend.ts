@@ -6,6 +6,7 @@ import { isEditedJobDraft, renderJobOutreach, type JobGreeting } from './job-out
 import { sendOutreachMail } from './mailer';
 import { firstName } from './outreach-template';
 import { createPacer } from './pace';
+import { companyLabel, employerName, posterName } from './postjob';
 import { readResumePdf } from './resume-file';
 import { bouncedAddresses, mailedAddresses, recordInitialSend } from './sequence';
 import {
@@ -81,6 +82,17 @@ export function jobSendCap(): number {
   if (raw === undefined || raw.trim() === '') return 3;
   const n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+}
+
+/**
+ * The key behind the one-application-per-employer-per-run guard.
+ *
+ * The employer when the row names one, else whoever posted it, else '' for no guard at all.
+ * See the call site for why the poster half still matters.
+ */
+function dedupeKey(job: Job): string {
+  const name = employerName(job) || posterName(job.tags);
+  return name.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 /** Addresses trusted enough to mail unattended. On a job row the post itself is the best one. */
@@ -253,7 +265,12 @@ export async function jobSendCandidates(): Promise<{
   const candidates = out.filter((c) => {
     const address = c.to.toLowerCase();
     if (alreadyMailed.has(address) || bounced.has(address)) return false;
-    const company = c.job.company.toLowerCase().replace(/[^a-z0-9]/g, '');
+    // ⚠️ THE EMPLOYER, ELSE THE POSTER - not `job.company`, which is now empty on a post
+    // that never named a company. The old field doubled as a per-POSTER guard by accident (it
+    // held the poster's name), and that guard is worth keeping on purpose: one recruiter
+    // posting twice from two addresses should still get one application, not two. An empty key
+    // means no dedupe, which is right - two unnamed employers are not the same employer.
+    const company = dedupeKey(c.job);
     if (seenAddress.has(address) || (company && seenCompany.has(company))) return false;
     seenAddress.add(address);
     if (company) seenCompany.add(company);
@@ -292,7 +309,10 @@ export async function runJobAutoSend(opts: { dryRun?: boolean } = {}): Promise<J
     // send" rather than "sending is off". `cap` and `eligible` are both in the result, so how
     // many of these would actually go this morning is still plain.
     result.sent = candidates.slice(0, DRY_RUN_LIST_LIMIT).map((c) => ({
-      company: c.job.company,
+      // `companyLabel`, not `job.company`: a post row that never named an employer has an
+      // empty company, and a dry run listing a blank there is unreadable. It reads
+      // "posted by <name>" instead, which is what that row actually is.
+      company: companyLabel(c.job),
       title: c.job.title,
       to: c.to,
       greeted: c.greeted,
@@ -324,7 +344,7 @@ export async function runJobAutoSend(opts: { dryRun?: boolean } = {}): Promise<J
       if (!greetingMatches(draft.text, c.greeting, c.greeted)) {
         if (isEditedJobDraft(draft.model)) {
           result.failed.push({
-            company: c.job.company,
+            company: companyLabel(c.job),
             to: c.to,
             error: `hand-edited draft does not open the way ${c.to} requires — fix or reset it`,
           });
@@ -338,7 +358,11 @@ export async function runJobAutoSend(opts: { dryRun?: boolean } = {}): Promise<J
           { greeting: c.greeting }
         );
         if (!regenerated) {
-          result.failed.push({ company: c.job.company, to: c.to, error: 'could not render draft' });
+          result.failed.push({
+            company: companyLabel(c.job),
+            to: c.to,
+            error: 'could not render draft',
+          });
           continue;
         }
         draft = regenerated;
@@ -349,7 +373,8 @@ export async function runJobAutoSend(opts: { dryRun?: boolean } = {}): Promise<J
         to: c.to,
         subject: draft.subject,
         text: draft.text,
-        company: c.job.company,
+        // Only reaches the agent card's log line, so the readable label is the right one here.
+        company: companyLabel(c.job),
       });
       const sentAt = new Date().toISOString();
       await saveJobOutreach(c.job.id, { ...draft, sentAt, sentTo: c.to });
@@ -359,7 +384,11 @@ export async function runJobAutoSend(opts: { dryRun?: boolean } = {}): Promise<J
       await recordInitialSend({
         id: c.job.id,
         kind: 'job',
-        company: c.job.company,
+        // ⚠️ THE TRUSTED NAME, NOT THE READABLE LABEL. This one is INTERPOLATED into the
+        // follow-up bodies three days from now ("still very interested in the role at ___"),
+        // so it has to be EMPTY when the employer is unknown. The label would mail "the role
+        // at posted by Fathima Sajid".
+        company: employerName(c.job),
         to: c.to,
         // ⚠️ 'team', not '', on a team draft. `runFollowUps` refuses to bump a sequence with
         // an empty `greeted` — rightly, since it would open "Hi ," — so passing the empty
@@ -372,14 +401,14 @@ export async function runJobAutoSend(opts: { dryRun?: boolean } = {}): Promise<J
         messageId: sent.id,
       });
       result.sent.push({
-        company: c.job.company,
+        company: companyLabel(c.job),
         title: c.job.title,
         to: c.to,
         greeted: c.greeted,
         foundOn: c.foundOn,
       });
     } catch (e) {
-      result.failed.push({ company: c.job.company, to: c.to, error: (e as Error).message });
+      result.failed.push({ company: companyLabel(c.job), to: c.to, error: (e as Error).message });
     }
   }
 
