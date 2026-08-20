@@ -243,6 +243,37 @@ check(
   'and the ordinary case is unchanged'
 );
 
+// THE USER'S OWN LIVE ROWS, read off /paste on 2026-08-20. The separators used to be deleted
+// rather than cut at, which welded the qualifier onto the role: the MPL row went out saying
+// "your post about Product Management Mobile Premier League MPL US roles at Mobile Premier
+// League (MPL)". A title's role is its HEAD.
+const REAL_TITLES: Array<[string, string]> = [
+  ["We're hiring: Product Manager – Prepaid Cards & Gift Cards (India).", 'Product Manager'],
+  ["We're Hiring: Product Management Intern | Mobile Premier League (MPL) US", 'Product Management'],
+  ['Hiring: Product Manager (Remote | Entry-Level)', 'Product Manager'],
+  ["Founder's Office - Growth", "Founder's Office"],
+  // The hyphen INSIDE a word must survive. Only a spaced dash separates.
+  ['Full-stack Developer Intern', 'Full-stack Developer'],
+  ['Data Analyst, Bengaluru', 'Data Analyst'],
+];
+for (const [title, want] of REAL_TITLES) {
+  check(rolePhrase(title) === want, `"${title.slice(0, 42)}…" -> "${want}"`, rolePhrase(title));
+}
+check(
+  REAL_TITLES.every(([, want]) => !/[–—]/.test(want)),
+  'no en or em dash can reach the body through a title',
+  'standing rule, 2026-08-08'
+);
+// And the two junk shapes must STILL degrade, now that the role test runs on the cut phrase.
+check(!looksLikeRole(rolePhrase(HEADLINE)), 'a funding headline still fails after the cut');
+check(
+  !looksLikeRole(
+    rolePhrase("Kirana Club is entering its next phase of growth — and we're looking for builders.")
+  ),
+  'and so does a chatty growth announcement'
+);
+check(!looksLikeRole(rolePhrase('Viamedia.ai is hiring! 🚀')), 'and a bare "X is hiring!" line');
+
 console.log('\n--- companyOf: who is hiring, read out of the post ---');
 const co = (text: string, author?: { name?: string; info?: string; type?: string }) =>
   companyOf(text, author ?? { name: POSTER });

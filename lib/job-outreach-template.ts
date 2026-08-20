@@ -54,6 +54,15 @@ const HIRING_PREFIX_RE =
   /^(?:we(?:'|’)?(?:re|\s+are|\s+is)?\s*)?(?:\s*(?:is|are)\s+)?(?:#?\s*(?:now|urgently|immediately|currently)\s+)?(?:#?\s*hiring|job\s+(?:alert|opening|opportunit(?:y|ies))s?|(?:immediate|urgent)\s+(?:opening|requirement|vacanc(?:y|ies))s?|vacanc(?:y|ies)|looking\s+for|apply\s+now)\s*(?:for|:|-|–|—|!|\.)*\s*/i;
 
 /**
+ * Where a title stops being a role and starts being a qualifier.
+ *
+ * A SPACED hyphen only, so "Full-stack Developer" keeps its hyphen while "Founder's Office -
+ * Growth" is cut. En and em dashes are cut wherever they appear: they are never inside a word,
+ * and the standing no-dash rule (2026-08-08) means one must never reach the body anyway.
+ */
+const ROLE_TAIL_RE = /[|•·()\[\]{}\/,;:]|\s[-–—]\s|[–—]/;
+
+/**
  * The role as it reads inside "your post about ___ roles".
  *
  * Titles arrive as "Product Management Internship", "Data Analyst Intern", or a whole
@@ -73,9 +82,17 @@ export function rolePhrase(title: string): string {
     // first or HIRING_PREFIX_RE never gets to match.
     .replace(/^[^\p{L}\p{N}]+/u, '')
     .replace(HIRING_PREFIX_RE, '')
+    // ⚠️ CUT AT THE FIRST SEPARATOR, do not delete it. This used to strip brackets and pipes
+    // and leave the fragments touching, which WELDED the qualifier onto the role: the user's
+    // own live rows produced "your post about Product Management Mobile Premier League MPL US
+    // roles at Mobile Premier League (MPL)" and "about Product Manager Remote Entry-Level
+    // roles". A title's role is its HEAD; everything after a pipe, a bracket, a spaced dash or
+    // a comma is a qualifier - the company, the city, the seniority, the contract type.
+    .split(ROLE_TAIL_RE)[0]
     .replace(/\b(intern|internship|interns|internships)\b/gi, ' ')
-    .replace(/[(){}\[\]|]/g, ' ')
-    .replace(/\s*[-–—:,]\s*$/, '')
+    // Trailing punctuation, `.` and `!` included. "…Gift Cards (India)." used to keep its full
+    // stop and read "about Product Manager Gift Cards India . roles".
+    .replace(/[\s.,;:!?\-–—]+$/, '')
     .replace(/\s+/g, ' ')
     .trim();
   // '' rather than 'the'. A title that is ALL announcement ("We are hiring!") has to drop the
@@ -200,7 +217,13 @@ export function renderJobOutreach(
   // empty when nothing ever told us who is hiring (see employerName). Each missing answer
   // drops its own clause. Interpolating whatever happened to be in the field is precisely the
   // bug the user reported on 2026-08-20 — "roles at Fathima Sajid", the poster's own name.
-  const role = looksLikeRole(job.title) ? rolePhrase(job.title) : '';
+  // ⚠️ THE TEST RUNS ON THE CLEANED PHRASE, NOT THE RAW TITLE. Judge the string you are about
+  // to interpolate: "We're hiring: Product Manager – Prepaid Cards & Gift Cards (India)." is 66
+  // characters and fails the raw test, yet its role is plainly "Product Manager" and naming it
+  // is better than the degraded sentence. The junk cases still fail - a funding headline is
+  // still nine words and still carries a currency symbol after the cut.
+  const phrase = rolePhrase(job.title);
+  const role = looksLikeRole(phrase) ? phrase : '';
   const company = employerName(job);
 
   const opener = role
