@@ -387,3 +387,21 @@ export function isCurrentJobTemplate(model: string): boolean {
     model === `template:job-team-pitch-${JOB_TEMPLATE_VERSION}`
   );
 }
+
+/**
+ * Is this draft machine-written copy from an OLDER template, i.e. must it be re-rendered
+ * before anyone sees it?
+ *
+ * ⚠️ THE `isEditedJobDraft` HALF IS NOT A REFINEMENT, IT IS THE WHOLE SAFETY PROPERTY. A
+ * hand-edited draft also fails `isCurrentJobTemplate` (its model carries the `+edited` suffix,
+ * which is pinned in the check script), so a stale test written as `!isCurrentJobTemplate`
+ * alone would call every hand-edited draft stale and re-render it — throwing the edit away,
+ * which is the one thing the edit flag exists to prevent.
+ *
+ * It is one function because three send-side callers and the dashboard's own "stale" badge all
+ * have to agree. When they were four copies of the same two-clause expression, the badge could
+ * have told the user a row was fine while the sender rewrote it on the way out.
+ */
+export function isStaleJobDraft(model: string): boolean {
+  return !isEditedJobDraft(model) && !isCurrentJobTemplate(model);
+}

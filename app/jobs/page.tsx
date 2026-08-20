@@ -5,8 +5,11 @@ import { isGenericEmail } from '@/lib/contact';
 import { jobSendCandidates, jobSendCap } from '@/lib/job-autosend';
 import { isHiringInbox } from '@/lib/job-contact';
 import { hasHumanPoster } from '@/lib/job-prepare';
+import { isTeamDraft } from '@/lib/job-outreach-template';
+import { greetedIn } from '@/lib/sequence';
 import { companyLabel } from '@/lib/postjob';
 import { DeleteButton } from '../delete-button';
+import { JobDraftBlock } from '../job-draft-block';
 import { Nav } from '../nav';
 import { PrepareJobsButton, SendEligibleJobsButton } from '../prepare-jobs-button';
 import { SendJobButton } from '../send-job-button';
@@ -255,32 +258,50 @@ export default async function JobsPage({
           </p>
         ) : (
           <ul className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-950">
-            {shown.map((j) => (
-              <li key={j.id} className="px-4 py-3">
-                <a
-                  href={j.url}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="block text-sm font-medium text-zinc-900 hover:underline dark:text-zinc-100"
-                >
-                  {j.title}
-                </a>
-                <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                  <span>
-                    {companyLabel(j)} · {j.location || 'remote'} ·{' '}
-                    <span className="italic">{j.source}</span>
-                    {j.salary ? ` · ${j.salary}` : ''} · {fmtDate(j.postedAt)}
-                  </span>
-                  <DeleteButton id={j.id} action={deleteJobRow} what={`“${j.title}”`} />
-                </div>
-                <OutreachLine
-                  job={j}
-                  contact={contacts.get(j.id)}
-                  draft={drafts.get(j.id)}
-                  wouldSendTo={wouldSend.get(j.id)}
-                />
-              </li>
-            ))}
+            {shown.map((j) => {
+              const draft = drafts.get(j.id);
+              // A team draft greets "team", which is not a person, so it is not looked up as
+              // one — same rule as /paste, and the editor states the opener it must keep.
+              const teamDraft = draft ? isTeamDraft(draft.model) : false;
+              const greeted = draft && !teamDraft ? greetedIn(draft.text) : null;
+              return (
+                <li key={j.id} className="px-4 py-3">
+                  <a
+                    href={j.url}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="block text-sm font-medium text-zinc-900 hover:underline dark:text-zinc-100"
+                  >
+                    {j.title}
+                  </a>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                    <span>
+                      {companyLabel(j)} · {j.location || 'remote'} ·{' '}
+                      <span className="italic">{j.source}</span>
+                      {j.salary ? ` · ${j.salary}` : ''} · {fmtDate(j.postedAt)}
+                    </span>
+                    <DeleteButton id={j.id} action={deleteJobRow} what={`“${j.title}”`} />
+                  </div>
+                  <OutreachLine
+                    job={j}
+                    contact={contacts.get(j.id)}
+                    draft={draft}
+                    wouldSendTo={wouldSend.get(j.id)}
+                  />
+                  {/* The email itself, on a DISCOVERED row. Without this the row said only who
+                      it would be mailed to, never what it said — so the copy that named a
+                      recruiter as her own employer could not be caught before she received it.
+                      A sent draft is a record of what somebody got and is not editable. */}
+                  {draft && !draft.sentAt && (
+                    <JobDraftBlock
+                      id={j.id}
+                      draft={draft}
+                      greeted={teamDraft ? 'team' : greeted}
+                    />
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </main>

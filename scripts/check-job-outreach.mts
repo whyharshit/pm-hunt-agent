@@ -30,6 +30,7 @@ import { domainMatchesCompany } from '../lib/enrich';
 import { isOnsiteAllowed, isPitchTarget, passes } from '../lib/filters';
 import {
   isCurrentJobTemplate,
+  isStaleJobDraft,
   isTeamDraft,
   looksLikeRole,
   renderJobOutreach,
@@ -360,6 +361,22 @@ check(
 check(
   !isCurrentJobTemplate(`${fresh?.model}+edited`),
   'a hand-edited draft is never "current", so nothing rewrites it'
+);
+
+// ⚠️ AND THIS IS WHY "not current" IS NOT THE SAME QUESTION AS "must be re-rendered".
+// `isStaleJobDraft` is the predicate the prepare pass, the cron sender, the dashboard's Send
+// and the draft-review badge all actually ask. Written as `!isCurrentJobTemplate` alone it
+// would report every hand-edited draft as stale and re-render it, silently discarding the
+// edit — the one outcome the edit flag exists to prevent.
+check(isStaleJobDraft('template:job-v3'), 'an untouched v3 draft is stale');
+check(!isStaleJobDraft(fresh?.model ?? ''), 'a freshly rendered draft is not stale');
+check(
+  !isStaleJobDraft(`${fresh?.model}+edited`),
+  'a hand-edited draft is NOT stale, so no re-render throws the edit away'
+);
+check(
+  !isStaleJobDraft('template:job-v3+edited'),
+  'and that holds even when the edit was made to OLD copy — it belongs to whoever wrote it'
 );
 
 console.log('\n--- template: the "Hi team," variant ---');

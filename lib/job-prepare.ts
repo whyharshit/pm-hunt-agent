@@ -1,7 +1,6 @@
 import { contactFromJob, enrichJobContact, isHiringInbox } from './job-contact';
 import {
-  isCurrentJobTemplate,
-  isEditedJobDraft,
+  isStaleJobDraft,
   renderJobOutreach,
   type JobGreeting,
 } from './job-outreach-template';
@@ -278,12 +277,7 @@ export async function runJobPrepare(
       // queue ready to send. Sent drafts are the record of what somebody received and
       // hand-edited ones are not ours to rewrite, so neither is touched.
       const existingDraft = drafts.get(job.id);
-      if (
-        existingDraft &&
-        (existingDraft.sentAt ||
-          isEditedJobDraft(existingDraft.model) ||
-          isCurrentJobTemplate(existingDraft.model))
-      ) {
+      if (existingDraft && (existingDraft.sentAt || !isStaleJobDraft(existingDraft.model))) {
         continue;
       }
 

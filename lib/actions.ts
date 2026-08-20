@@ -43,8 +43,8 @@ import {
 } from './outreach-template';
 import {
   EDITED_JOB_MODEL_SUFFIX,
-  isCurrentJobTemplate,
   isEditedJobDraft,
+  isStaleJobDraft,
   isTeamDraft,
   renderJobOutreach,
 } from './job-outreach-template';
@@ -220,7 +220,7 @@ export async function resetFundingDraft(formData: FormData): Promise<void> {
  *
  * Marking the model `+edited` is the load-bearing part, not the text. Three separate machines
  * rewrite drafts they believe they own, and all three check this flag:
- *   - `isCurrentJobTemplate` re-renders stale template drafts on the next prepare pass,
+ *   - `isStaleJobDraft` re-renders stale template drafts on the next prepare pass,
  *   - `greetingMatches` in the unattended sender re-renders when the recipient changed,
  *   - `resetJobDraft` below is the only way back.
  * Without the flag, a hand-edited application would be silently reverted by whichever ran
@@ -425,7 +425,7 @@ export async function sendJobEmail(formData: FormData): Promise<void> {
   // as the employer. A hand-edited draft is left exactly as the human wrote it: theirs to
   // send, and the whole point of the edit flag.
   let draft = stored;
-  if (!isEditedJobDraft(draft.model) && !isCurrentJobTemplate(draft.model)) {
+  if (isStaleJobDraft(draft.model)) {
     const fresh = renderJobOutreach(job, contact, {
       greeting: isTeamDraft(draft.model) ? 'team' : 'person',
     });

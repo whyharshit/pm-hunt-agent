@@ -3,8 +3,8 @@ import { domainMatchesCompany } from './enrich';
 import { byPreference } from './job-category';
 import { isHiringInbox } from './job-contact';
 import {
-  isCurrentJobTemplate,
   isEditedJobDraft,
+  isStaleJobDraft,
   renderJobOutreach,
   type JobGreeting,
 } from './job-outreach-template';
@@ -356,8 +356,7 @@ export async function runJobAutoSend(opts: { dryRun?: boolean } = {}): Promise<J
       // POSTER as the employer. The version bump only protects anything if the sender checks
       // it too.
       let draft = c.draft;
-      const staleTemplate =
-        !isEditedJobDraft(draft.model) && !isCurrentJobTemplate(draft.model);
+      const staleTemplate = isStaleJobDraft(draft.model);
       if (staleTemplate || !greetingMatches(draft.text, c.greeting, c.greeted)) {
         if (isEditedJobDraft(draft.model)) {
           result.failed.push({

@@ -1,12 +1,13 @@
-import { addJobContactEmail, deleteJobRow, resetJobDraft, updateJobDraft } from '@/lib/actions';
+import { addJobContactEmail, deleteJobRow } from '@/lib/actions';
 import { addressLooksLikePerson, isGenericEmail } from '@/lib/contact';
 import { isHiringInbox } from '@/lib/job-contact';
-import { isEditedJobDraft, isTeamDraft } from '@/lib/job-outreach-template';
+import { isTeamDraft } from '@/lib/job-outreach-template';
 import { fmtDate } from '@/lib/format';
 import { companyLabel } from '@/lib/postjob';
 import { greetedIn } from '@/lib/sequence';
 import { getJobContacts, getJobOutreaches, getRecentJobs } from '@/lib/storage';
 import { DeleteButton } from '../delete-button';
+import { JobDraftBlock } from '../job-draft-block';
 import { Nav } from '../nav';
 import { PasteForm } from '../paste-form';
 import { SendJobButton } from '../send-job-button';
@@ -238,89 +239,15 @@ function PastedRow({
           </form>
 
           {draft && (
-            <details className="mt-3">
-              <summary className="cursor-pointer text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">
-                Edit the email
-                {isEditedJobDraft(draft.model) && (
-                  <span className="ml-2 text-amber-700 dark:text-amber-400">· edited by hand</span>
-                )}
-              </summary>
-              <JobDraftEditor id={job.id} draft={draft} greeted={teamDraft ? 'team' : greeted} />
-            </details>
+            <JobDraftBlock
+              id={job.id}
+              draft={draft}
+              greeted={teamDraft ? 'team' : greeted}
+              summary="Edit the email"
+            />
           )}
         </>
       )}
     </li>
-  );
-}
-
-/**
- * Edit a pasted application before sending it. Same shape as the funding pipeline's editor
- * (app/funding-section.tsx) because it is the same job, and a second layout for it would be a
- * second thing to keep in step.
- *
- * ⚠️ THE GREETING LINE IS LOAD-BEARING AND EASY TO EDIT BY ACCIDENT. Every send path checks
- * that the draft opens with the recipient's name (or "Hi team," for a shared inbox); the
- * unattended sender REFUSES a hand-edited draft whose greeting no longer matches rather than
- * rewriting it, because rewriting would throw away the edit. So the opener is stated here
- * rather than left to be rediscovered from a failure message three days later.
- */
-function JobDraftEditor({
-  id,
-  draft,
-  greeted,
-}: {
-  id: string;
-  draft: JobOutreach;
-  greeted: string | null;
-}) {
-  const edited = isEditedJobDraft(draft.model);
-
-  return (
-    <form action={updateJobDraft} className="mt-2 space-y-1">
-      <input type="hidden" name="id" value={id} />
-      <input
-        type="text"
-        name="subject"
-        defaultValue={draft.subject ?? ''}
-        placeholder="Subject"
-        className="w-full rounded border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
-      />
-      <textarea
-        name="text"
-        defaultValue={draft.text}
-        // Tall enough for the whole template, so editing does not happen down a peephole.
-        rows={18}
-        className="w-full resize-y rounded border border-zinc-200 bg-white px-3 py-2 font-mono text-xs leading-relaxed text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300"
-      />
-      {greeted && (
-        <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-          Keep the opener as “Hi {greeted},” — every send path checks the greeting against the
-          address, and a hand-edited draft is refused rather than silently rewritten.
-        </p>
-      )}
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="submit"
-          className="h-7 rounded border border-zinc-300 bg-white px-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-        >
-          Save draft
-        </button>
-        {edited && (
-          <>
-            <span className="text-[11px] text-amber-700 dark:text-amber-400">
-              edited by hand · bulk re-drafts skip this row
-            </span>
-            <button
-              type="submit"
-              formAction={resetJobDraft}
-              className="h-7 rounded border border-zinc-300 bg-white px-2 text-[11px] text-zinc-500 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
-            >
-              Reset to template
-            </button>
-          </>
-        )}
-      </div>
-    </form>
   );
 }
