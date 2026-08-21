@@ -46,6 +46,9 @@ export const config = {
   // /paste both sends email and spends Hunter credits, so it is the worst one to forget.
   matcher: [
     '/',
+    // /mail lists real recruiter addresses and who has answered. Added with the route, in the
+    // same commit, for the reason written above.
+    '/mail',
     '/funding',
     '/jobs',
     '/paste',

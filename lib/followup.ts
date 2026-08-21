@@ -240,7 +240,12 @@ export async function runFollowUps(
             // aayush.j@rovia.one (colleague)" is the line that explains why a sequence to
             // careers@rovia.one stopped.
             if (!dryRun) {
-              await closeSequence(seq, 'replied', `reply from ${reply.from} (${reply.how})`);
+              await closeSequence(seq, 'replied', `reply from ${reply.from} (${reply.how})`, {
+                from: reply.from,
+                at: reply.at,
+                how: reply.how,
+                noticedAt: new Date().toISOString(),
+              });
             }
             result.stopped.push({ company: seq.company, to: seq.to, reason: 'replied' });
             continue;

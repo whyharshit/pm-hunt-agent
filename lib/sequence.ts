@@ -141,7 +141,13 @@ export async function recordFollowUpSend(
 export async function closeSequence(
   seq: OutreachSequence,
   state: Extract<OutreachSequence['state'], 'replied' | 'bounced' | 'stopped'>,
-  reason: string
+  reason: string,
+  /**
+   * The structured reply, when this is a 'replied' close. `closedReason` is prose for a human;
+   * this is what /mail reads to put "reply from <address>" on the timeline at the time THEY
+   * wrote rather than the time a cron happened to look.
+   */
+  reply?: OutreachSequence['reply']
 ): Promise<OutreachSequence> {
   const closed: OutreachSequence = {
     ...seq,
@@ -149,6 +155,7 @@ export async function closeSequence(
     state,
     closedAt: new Date().toISOString(),
     closedReason: reason,
+    ...(reply ? { reply } : {}),
   };
   await saveOutreachSequence(closed);
   return closed;

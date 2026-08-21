@@ -8,7 +8,7 @@ import Link from 'next/link';
 export function Nav({
   current,
 }: {
-  current: 'home' | 'funding' | 'jobs' | 'paste' | 'database';
+  current: 'home' | 'mail' | 'funding' | 'jobs' | 'paste' | 'database';
 }) {
   const tab = (href: string, key: typeof current, label: string) => (
     <Link
@@ -27,6 +27,9 @@ export function Nav({
   return (
     <nav className="mb-6 flex flex-wrap gap-2">
       {tab('/', 'home', 'Agents & applications')}
+      {/* Second, not last: "has anybody replied" is the question asked most often, and it had
+          no page at all until 2026-08-21. */}
+      {tab('/mail', 'mail', 'Mail')}
       {tab('/funding', 'funding', 'Funding outreach')}
       {tab('/jobs', 'jobs', 'Discovered jobs')}
       {tab('/paste', 'paste', 'Paste a post')}

@@ -166,14 +166,20 @@ const MAX_HITS_EXAMINED = 5;
 async function senderOfNewestForeignMatch(
   client: ImapFlow,
   query: SearchObject
-): Promise<string | null> {
+): Promise<{ from: string; at?: string } | null> {
   const hits = await client.search(query, { uid: true });
   if (!Array.isArray(hits) || hits.length === 0) return null;
   const self = selfAddress();
   for (const uid of hits.slice(-MAX_HITS_EXAMINED).reverse()) {
     const msg = await client.fetchOne(String(uid), { envelope: true }, { uid: true });
     const from = (msg && msg.envelope?.from?.[0]?.address?.toLowerCase()) || '';
-    if (from && from !== self) return from;
+    if (from && from !== self) {
+      // The envelope date is when THEY wrote, which is not when we noticed. The Rovia reply
+      // landed at 02:03 and was found at 09:29; a tracker that shows only the second number
+      // cannot tell a fast reply from a slow check.
+      const at = msg && msg.envelope?.date ? new Date(msg.envelope.date).toISOString() : undefined;
+      return { from, at };
+    }
   }
   return null;
 }
@@ -198,6 +204,8 @@ export type ReplyHit = {
   from: string;
   /** How it was recognised: the thread, the address we wrote to, or a colleague of it. */
   how: 'thread' | 'address' | 'colleague';
+  /** When THEY wrote, off the message envelope. Absent if the server gave no date. */
+  at?: string;
 };
 
 /**
@@ -236,14 +244,14 @@ export async function findReply(client: ImapFlow, probe: ReplyProbe): Promise<Re
           { header: { references: id } },
         ]),
       });
-      if (threaded) return { from: threaded, how: 'thread' };
+      if (threaded) return { ...threaded, how: 'thread' };
     }
 
     const direct = await senderOfNewestForeignMatch(client, {
       since: probe.since,
       from: probe.to,
     });
-    if (direct) return { from: direct, how: 'address' };
+    if (direct) return { ...direct, how: 'address' };
 
     const domain = colleagueDomainFor(probe.to);
     if (domain) {
@@ -253,7 +261,7 @@ export async function findReply(client: ImapFlow, probe: ReplyProbe): Promise<Re
         since: probe.since,
         from: `@${domain}`,
       });
-      if (colleague) return { from: colleague, how: 'colleague' };
+      if (colleague) return { ...colleague, how: 'colleague' };
     }
 
     return null;

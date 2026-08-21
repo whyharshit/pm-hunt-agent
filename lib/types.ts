@@ -184,6 +184,26 @@ export type OutreachSequence = {
   state: 'active' | 'replied' | 'bounced' | 'done' | 'stopped';
   closedAt?: string;
   closedReason?: string;
+  /**
+   * Who answered, when they answered, and how we recognised it.
+   *
+   * ⚠️ NOT DERIVABLE FROM `closedReason`, which is a sentence for a human. The address is
+   * usually NOT `to` — an application to `careers@rovia.one` was answered from
+   * `aayush.j@rovia.one` — and `at` is when THEY wrote, where `closedAt` is when a run
+   * noticed. Those were seven hours apart on that thread, and the /mail timeline is unreadable
+   * if it can only show the second one.
+   *
+   * Absent on sequences closed before 2026-08-21; the timeline falls back to `closedAt` plus
+   * `closedReason` for those rather than guessing.
+   */
+  reply?: {
+    from: string;
+    /** When they wrote, off the message envelope. */
+    at?: string;
+    how: 'thread' | 'address' | 'colleague';
+    /** When a follow-up run found it. */
+    noticedAt: string;
+  };
 };
 
 export type ContactPerson = {
