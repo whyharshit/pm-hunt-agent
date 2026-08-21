@@ -1,6 +1,7 @@
 import { runAutoSend } from '@/lib/autosend';
 import { runFollowUps } from '@/lib/followup';
 import { runFundingScan } from '@/lib/funding';
+import { FUNDING_INVOCATION_MS, createInvocationClock } from '@/lib/invocation-clock';
 import { runJobAutoSend } from '@/lib/job-autosend';
 import { runJobPrepare } from '@/lib/job-prepare';
 import { runPrepare } from '@/lib/prepare';
@@ -10,6 +11,10 @@ import { fetchTechCrunchFundingDetailed } from '@/lib/sources/techcrunch';
 export const dynamic = 'force-dynamic';
 // Raised from 120 when the follow-up pass moved in: one invocation now covers the scan, the
 // cold sends, an IMAP session and the follow-up sends.
+//
+// ⚠️ KEEP THIS EQUAL TO `FUNDING_INVOCATION_MS`. The passes below no longer own fixed budgets;
+// they draw against that number, and if it disagrees with the platform's real ceiling the
+// clock hands out time this function does not have.
 export const maxDuration = 300;
 
 function authOk(request: Request): boolean {
@@ -86,39 +91,55 @@ async function handle(request: Request) {
   const prepareJobsOnly = jobs === 'prepare';
   const shouldRunJobs = jobs === 'true' || (isVercelCron && jobs !== 'off');
 
+  // ⚠️ ONE CLOCK FOR THE WHOLE INVOCATION, and the order of the passes below is now a
+  // priority ranking rather than a habit. Every pass used to declare its own budget in
+  // isolation, which added up to ~380s inside this 300s function; the platform then killed
+  // whichever pass happened to be last, silently. See lib/invocation-clock.ts.
+  const clock = createInvocationClock({ totalMs: FUNDING_INVOCATION_MS });
+
   try {
-    const result = await runFundingScan();
-
-    // BEFORE the sender, never after: a row enriched and drafted this morning is then
-    // eligible in the very same invocation, so a company that raised yesterday can be
-    // contacted today rather than tomorrow.
-    const prepareResult =
-      shouldPrepare || prepare === 'dry' ? await runPrepare({ dryRun: prepare === 'dry' }) : null;
-
-    const autosendResult =
-      shouldSend || autosend === 'dry'
-        ? await runAutoSend({ dryRun: autosend === 'dry' })
-        : null;
-
-    const followupResult =
-      shouldFollowUp || followups === 'dry'
-        ? await runFollowUps({ dryRun: followups === 'dry' })
-        : null;
-
-    // Prepare then send, in that order and for the same reason the funding pair runs that
-    // way: a job discovered this morning gets its contact, its draft and its email in one
-    // invocation instead of waiting a day between each step.
+    // ⚠️ THE JOB PASSES RUN FIRST, AND THAT IS THE POINT. The internship pipeline is the goal
+    // of this project; until 2026-08-21 it was scheduled last of six, behind an unbounded
+    // funding scan, ~100s of founder prepare, 70s of cold-send pacing and an IMAP session —
+    // so it was the pass that got truncated when the invocation ran out. Founder outreach now
+    // takes the leftovers, and says so in its result when there are none.
+    //
+    // Prepare then send, in that order: a job discovered this morning gets its contact, its
+    // draft and its email in one invocation instead of waiting a day between each step.
     const jobsDry = jobs === 'dry';
     const jobPrepareResult =
       shouldRunJobs || jobsDry || prepareJobsOnly
         ? // `manual` on a hand-forced pass, exactly as the dashboard button does it: a human
           // asked for this batch and is reading the result, so it gets the longer clock and the
           // button's credit allowance rather than the cron's sip.
-          await runJobPrepare({ dryRun: jobsDry, manual: prepareJobsOnly })
+          await runJobPrepare({ dryRun: jobsDry, manual: prepareJobsOnly, clock })
         : null;
     // NOT on `prepareJobsOnly`. That is the entire point of the switch.
     const jobSendResult =
-      shouldRunJobs || jobsDry ? await runJobAutoSend({ dryRun: jobsDry }) : null;
+      shouldRunJobs || jobsDry ? await runJobAutoSend({ dryRun: jobsDry, clock }) : null;
+
+    // The scan is unbounded — it is feed fetches plus a Gemini extraction — which is exactly
+    // why it no longer runs ahead of the pipeline that mails people. It still always runs:
+    // it is this route's namesake and its result is the response.
+    const result = await runFundingScan();
+
+    // BEFORE the sender, never after: a row enriched and drafted this morning is then
+    // eligible in the very same invocation, so a company that raised yesterday can be
+    // contacted today rather than tomorrow.
+    const prepareResult =
+      shouldPrepare || prepare === 'dry'
+        ? await runPrepare({ dryRun: prepare === 'dry', clock })
+        : null;
+
+    const autosendResult =
+      shouldSend || autosend === 'dry'
+        ? await runAutoSend({ dryRun: autosend === 'dry', clock })
+        : null;
+
+    const followupResult =
+      shouldFollowUp || followups === 'dry'
+        ? await runFollowUps({ dryRun: followups === 'dry', clock })
+        : null;
 
     if (prepareResult || autosendResult || followupResult || jobPrepareResult) {
       return Response.json({
@@ -129,6 +150,14 @@ async function handle(request: Request) {
         ...(followupResult ? { followups: followupResult } : {}),
         ...(jobPrepareResult ? { jobPrepare: jobPrepareResult } : {}),
         ...(jobSendResult ? { jobSend: jobSendResult } : {}),
+        // How the invocation actually spent itself. `vercel logs` can read this, and it is
+        // the only way to tell "nothing was due" apart from "there was no time left" without
+        // reading Redis, which the CLI cannot do.
+        budget: {
+          elapsedMs: clock.elapsedMs(),
+          remainingMs: clock.remainingMs(),
+          totalMs: FUNDING_INVOCATION_MS,
+        },
         triggeredByCron: isVercelCron,
       });
     }

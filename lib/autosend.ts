@@ -1,4 +1,5 @@
 import { addressLooksLikePerson, isGenericEmail } from './contact';
+import { unboundedClock, type InvocationClock } from './invocation-clock';
 import { sendOutreachMail } from './mailer';
 import { firstName, isEditedDraft, renderOutreachTemplate } from './outreach-template';
 import { createPacer } from './pace';
@@ -115,8 +116,22 @@ function domainUnverified(contact: FundingContact): boolean {
 /**
  * Time this pass may spend spacing sends apart. Both passes run inside one 300s invocation
  * alongside the scan, so the two budgets are deliberately small enough to co-exist with it.
+ *
+ * ⚠️ IT IS AN ASK, NOT AN ALLOWANCE, when a clock is passed (the cron). Six passes declaring
+ * their budgets independently added up to 380s inside a 300s function; see
+ * lib/invocation-clock.ts.
  */
 const PACE_BUDGET_MS = 70_000;
+
+/**
+ * Below this the pass declines rather than sends.
+ *
+ * ⚠️ NOT because a send needs 12s, but because pacing does. `createPacer` with nothing left
+ * returns immediately for every message, so an out-of-time batch would leave one personal
+ * Gmail back to back, stamped within the same few seconds — the machine signature lib/pace.ts
+ * exists to remove. A skipped batch is still due tomorrow; a burst cannot be un-sent.
+ */
+const MIN_SEND_MS = 12_000;
 
 export function autoSendCap(): number {
   const raw = process.env.AUTO_SEND_MAX_PER_DAY;
@@ -266,14 +281,23 @@ export type AutoSendResult = {
    * without one.
    */
   resumeKB: number | null;
+  /**
+   * The shared invocation clock was spent by the passes ahead of this one, so nothing was
+   * sent. Reported because `sent: []` alone reads as "nobody qualified".
+   */
+  outOfTime?: boolean;
 };
 
 /**
  * `dryRun` reports what would be sent and touches nothing. The cron calls it for real; use
  * the dry run to inspect the queue before trusting a schedule change.
  */
-export async function runAutoSend(opts: { dryRun?: boolean } = {}): Promise<AutoSendResult> {
+export async function runAutoSend(
+  opts: { dryRun?: boolean; clock?: InvocationClock } = {}
+): Promise<AutoSendResult> {
   const dryRun = opts.dryRun ?? false;
+  // No clock means a caller that owns its whole request — a dashboard button, /api/admin.
+  const clock = opts.clock ?? unboundedClock;
   const cap = autoSendCap();
   const candidates = await autoSendCandidates();
   const batch = candidates.slice(0, cap);
@@ -308,10 +332,20 @@ export async function runAutoSend(opts: { dryRun?: boolean } = {}): Promise<Auto
     return result;
   }
 
+  if (batch.length > 0 && !clock.canAfford(MIN_SEND_MS)) {
+    result.outOfTime = true;
+    await recordAgentRun('mailer', {
+      state: 'error',
+      summary: `cold sends skipped — the invocation clock was spent · ${batch.length} still due`,
+      error: 'out of time: earlier passes in this invocation used the budget',
+    });
+    return result;
+  }
+
   await setAgentRunning('mailer');
 
   // Spread the batch out instead of stamping every founder's email with the same second.
-  const pace = createPacer({ budgetMs: PACE_BUDGET_MS, count: batch.length });
+  const pace = createPacer({ budgetMs: clock.grant(PACE_BUDGET_MS), count: batch.length });
 
   for (const c of batch) {
     try {

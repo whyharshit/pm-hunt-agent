@@ -1,3 +1,4 @@
+import { unboundedClock, type InvocationClock } from './invocation-clock';
 import { contactFromJob, enrichJobContact, isHiringInbox } from './job-contact';
 import {
   isStaleJobDraft,
@@ -52,6 +53,13 @@ const MAX_JOB_AGE_DAYS = 21;
  */
 const PREPARE_BUDGET_MS = 20_000;
 const MANUAL_BUDGET_MS = 45_000;
+
+/**
+ * Below this the pass declines. One row costs a Hunter lookup plus two sequential Gemini
+ * calls, so a shorter slice spends a metered credit to produce nothing and reports
+ * `timedOut`. See lib/invocation-clock.ts for why a budget is now an ask.
+ */
+const MIN_PREPARE_MS = 8_000;
 
 /**
  * Hunter credits one job pass may spend. Cap AND kill switch: **0 = off**.
@@ -117,6 +125,11 @@ export type JobPrepareResult = {
   timedOut: boolean;
   dryRun: boolean;
   wouldSpend?: { credits: number; drafts: number };
+  /**
+   * Never started, because the shared invocation clock was already spent. Distinct from
+   * `timedOut`, which means it ran and was cut off part-way with rows still queued.
+   */
+  outOfTime?: boolean;
 };
 
 const expired = (deadline: number) => Date.now() > deadline;
@@ -178,6 +191,11 @@ export async function runJobPrepare(
      * takes the larger time slice, because nothing else is sharing this invocation.
      */
     manual?: boolean;
+    /**
+     * The invocation's shared clock, passed by the cron route. Absent for the dashboard
+     * button, which owns its whole request.
+     */
+    clock?: InvocationClock;
   } = {}
 ): Promise<JobPrepareResult> {
   const credits = opts.manual ? manualSpend() : jobEnrichSpendPerRun();
@@ -204,7 +222,13 @@ export async function runJobPrepare(
   }
   if (draftLimit === 0) return result;
 
-  const deadline = Date.now() + (opts.manual ? MANUAL_BUDGET_MS : PREPARE_BUDGET_MS);
+  const clock = opts.clock ?? unboundedClock;
+  if (!clock.canAfford(MIN_PREPARE_MS)) {
+    result.outOfTime = true;
+    return result;
+  }
+
+  const deadline = clock.deadlineFor(opts.manual ? MANUAL_BUDGET_MS : PREPARE_BUDGET_MS);
   const jobs = await getRecentJobs(JOB_WINDOW);
   const ids = jobs.map((j) => j.id);
   const [contacts, drafts] = await Promise.all([getJobContacts(ids), getJobOutreaches(ids)]);

@@ -1,5 +1,6 @@
 import { addressLooksLikePerson, isGenericEmail } from './contact';
 import { domainMatchesCompany } from './enrich';
+import { unboundedClock, type InvocationClock } from './invocation-clock';
 import { byPreference } from './job-category';
 import { isHiringInbox } from './job-contact';
 import {
@@ -74,6 +75,16 @@ const MAX_JOB_AGE_DAYS = 21;
  */
 const PACE_MS_PER_SEND = 6_000;
 const PACE_BUDGET_CEILING_MS = 120_000;
+
+/**
+ * Below this the pass declines rather than sends.
+ *
+ * ⚠️ NOT because a send needs 12s. `createPacer` with an empty budget returns immediately for
+ * every message, so an out-of-time batch would leave one personal Gmail back to back inside a
+ * few seconds — see the warning in lib/pace.ts. An application not sent this morning is still
+ * sendable tomorrow; twenty identically-stamped cold emails cannot be recalled.
+ */
+const MIN_SEND_MS = 12_000;
 
 function paceBudgetMs(count: number): number {
   return Math.min(PACE_BUDGET_CEILING_MS, Math.max(20_000, count * PACE_MS_PER_SEND));
@@ -169,6 +180,14 @@ export type JobSendResult = {
   blockedNoPersonMatch: number;
   dryRun: boolean;
   resumeKB: number | null;
+  /**
+   * The shared invocation clock was spent before this pass began, so nothing was sent.
+   * Reported because `sent: []` on its own reads as "no row qualified".
+   *
+   * This pass is scheduled FIRST in app/api/funding/route.ts precisely so this stays rare:
+   * it used to run last, which meant the platform kill landed on the internship pipeline.
+   */
+  outOfTime?: boolean;
 };
 
 /**
@@ -292,8 +311,12 @@ export async function jobSendCandidates(): Promise<{
  * `dryRun` reports what would be sent and touches nothing. The cron calls it for real; use
  * the dry run to inspect the queue before trusting a schedule change.
  */
-export async function runJobAutoSend(opts: { dryRun?: boolean } = {}): Promise<JobSendResult> {
+export async function runJobAutoSend(
+  opts: { dryRun?: boolean; clock?: InvocationClock } = {}
+): Promise<JobSendResult> {
   const dryRun = opts.dryRun ?? false;
+  // No clock means a caller that owns its whole request — the dashboard's `Send all N now`.
+  const clock = opts.clock ?? unboundedClock;
   const cap = jobSendCap();
   const { candidates, blockedSharedInbox, blockedNoPersonMatch } = await jobSendCandidates();
   const batch = candidates.slice(0, cap);
@@ -338,8 +361,21 @@ export async function runJobAutoSend(opts: { dryRun?: boolean } = {}): Promise<J
     return result;
   }
 
+  if (batch.length > 0 && !clock.canAfford(MIN_SEND_MS)) {
+    result.outOfTime = true;
+    await recordAgentRun('job-mailer', {
+      state: 'error',
+      summary: `applications skipped — the invocation clock was spent · ${batch.length} still due`,
+      error: 'out of time: earlier passes in this invocation used the budget',
+    });
+    return result;
+  }
+
   await setAgentRunning('job-mailer');
-  const pace = createPacer({ budgetMs: paceBudgetMs(batch.length), count: batch.length });
+  const pace = createPacer({
+    budgetMs: clock.grant(paceBudgetMs(batch.length)),
+    count: batch.length,
+  });
 
   for (const c of batch) {
     try {

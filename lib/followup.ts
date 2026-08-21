@@ -1,5 +1,6 @@
 import { renderFollowUp } from './followup-template';
 import { hasBounceFor, hasReplyFrom, findSentMessageId, imapConfigured, withImap } from './imap';
+import { unboundedClock, type InvocationClock } from './invocation-clock';
 import { sendOutreachMail } from './mailer';
 import { firstName } from './outreach-template';
 import { createPacer, noPacing } from './pace';
@@ -52,6 +53,17 @@ import type { OutreachSend, OutreachSequence } from './types';
 /** Same reasoning as the cold-send budget in lib/autosend.ts: both share one invocation. */
 const PACE_BUDGET_MS = 70_000;
 
+/**
+ * Below this the pass does not start — and here that means it does not open IMAP either.
+ *
+ * The floor is higher than the senders' because this pass pays for a mailbox session before
+ * it can send anything: connect, then a reply search and a bounce search per sequence. Half a
+ * budget buys the session and then runs out mid-queue, which is the worst outcome available —
+ * so it declines. Nothing is lost by declining: sending is what advances `nextDueAt`, so
+ * every bump skipped here is due again on the next fire.
+ */
+const MIN_FOLLOWUP_MS = 25_000;
+
 export function followUpCap(): number {
   const raw = process.env.FOLLOW_UP_MAX_PER_RUN;
   if (raw === undefined || raw.trim() === '') return 5;
@@ -72,6 +84,11 @@ export type FollowUpResult = {
   dryRun: boolean;
   /** Set when the mailbox could not be read. Nothing is sent when it is. */
   imapError: string | null;
+  /**
+   * The shared invocation clock was spent before this pass began, so the mailbox was never
+   * opened and `due` is 0 because nothing was counted — not because nothing was due.
+   */
+  outOfTime?: boolean;
 };
 
 /**
@@ -79,9 +96,37 @@ export type FollowUpResult = {
  * rehearsal that skipped them would report follow-ups going to people who have already
  * answered. It writes nothing and sends nothing.
  */
-export async function runFollowUps(opts: { dryRun?: boolean } = {}): Promise<FollowUpResult> {
+export async function runFollowUps(
+  opts: { dryRun?: boolean; clock?: InvocationClock } = {}
+): Promise<FollowUpResult> {
   const dryRun = opts.dryRun ?? false;
   const cap = followUpCap();
+  const clock = opts.clock ?? unboundedClock;
+
+  // ⚠️ CHECKED BEFORE THE BACKFILL, which is the first thing that opens IMAP. Everything
+  // below this line costs a mailbox session, and a session paid for out of a spent budget is
+  // a session that gets killed halfway through the queue.
+  if (cap > 0 && !clock.canAfford(MIN_FOLLOWUP_MS)) {
+    const out: FollowUpResult = {
+      cap,
+      backfilled: 0,
+      due: 0,
+      sent: [],
+      stopped: [],
+      failed: [],
+      dryRun,
+      imapError: null,
+      outOfTime: true,
+    };
+    if (!dryRun) {
+      await recordAgentRun('mailer', {
+        state: 'error',
+        summary: 'follow-ups skipped — the invocation clock was spent before the mailbox opened',
+        error: 'out of time: earlier passes in this invocation used the budget',
+      });
+    }
+    return out;
+  }
 
   // Self-heal before reading the queue. Any email sent without a sequence — the batch that
   // predates this feature, or a send that failed midway — is adopted here, so the system
@@ -167,7 +212,7 @@ export async function runFollowUps(opts: { dryRun?: boolean } = {}): Promise<Fol
   // Follow-ups get spaced apart for the same reason cold sends do. A dry run never waits.
   const pace = dryRun
     ? noPacing
-    : createPacer({ budgetMs: PACE_BUDGET_MS, count: Math.min(cap, due.length) });
+    : createPacer({ budgetMs: clock.grant(PACE_BUDGET_MS), count: Math.min(cap, due.length) });
 
   try {
     await withImap(async (client) => {

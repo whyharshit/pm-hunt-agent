@@ -1,6 +1,7 @@
 import { findContact } from './contact';
 import { enrichmentConfigured, findPeopleEmails, resolveDomain } from './enrich';
 import { draftOutreach } from './funding';
+import { unboundedClock, type InvocationClock } from './invocation-clock';
 import { resolveDomainViaSearch } from './sources/fundingnews';
 import { MAX_AGE_DAYS } from './sources/techcrunch';
 import {
@@ -442,12 +443,26 @@ export function draftLimitPerRun(): number {
 const ENRICH_BUDGET_MS = 40_000;
 const DRAFT_BUDGET_MS = 60_000;
 
+/**
+ * Below this there is no point starting either phase: one draft costs two SEQUENTIAL Gemini
+ * calls plus an article fetch, and one enrichment costs a Hunter call plus a Serper call. A
+ * phase given less would spend a metered credit, produce nothing, and report `timedOut` — so
+ * the pass declines and says `outOfTime` instead. See lib/invocation-clock.ts.
+ */
+const MIN_PHASE_MS = 15_000;
+
 export type PrepareResult = {
   enrich: EnrichPassResult | null;
   drafts: DraftPassResult | null;
   dryRun: boolean;
   /** What a dry run would have done, since it runs neither pass. */
   wouldSpend?: { credits: number; drafts: number };
+  /**
+   * A phase was skipped because the shared invocation clock was already spent by the passes
+   * ahead of it. Reported rather than silent: a null phase otherwise looks exactly like a
+   * phase that was switched off.
+   */
+  outOfTime?: boolean;
 };
 
 /**
@@ -455,7 +470,9 @@ export type PrepareResult = {
  * enrichment is what finds. Runs immediately before `runAutoSend` so a row discovered this
  * morning can be contacted this morning.
  */
-export async function runPrepare(opts: { dryRun?: boolean } = {}): Promise<PrepareResult> {
+export async function runPrepare(
+  opts: { dryRun?: boolean; clock?: InvocationClock } = {}
+): Promise<PrepareResult> {
   const credits = enrichSpendPerRun();
   const drafts = draftLimitPerRun();
 
@@ -463,13 +480,17 @@ export async function runPrepare(opts: { dryRun?: boolean } = {}): Promise<Prepa
     return { enrich: null, drafts: null, dryRun: true, wouldSpend: { credits, drafts } };
   }
 
+  // Unbounded when nobody passed a clock: `/api/admin` and the dashboard own their whole
+  // request, and their own maxDuration is the only ceiling that applies to them.
+  const clock = opts.clock ?? unboundedClock;
+
   // Enrichment is skipped entirely at 0 rather than run with a 0 budget: the free domain
   // phase still costs an HTTP call per row, and 0 is meant to be off, not cheap.
   const enrichResult =
-    credits > 0
+    credits > 0 && clock.canAfford(MIN_PHASE_MS)
       ? await runEnrichPass({
           spendBudget: credits,
-          deadline: Date.now() + ENRICH_BUDGET_MS,
+          deadline: clock.deadlineFor(ENRICH_BUDGET_MS),
           skipUnverifiedDomains: true,
         })
       : null;
@@ -477,8 +498,16 @@ export async function runPrepare(opts: { dryRun?: boolean } = {}): Promise<Prepa
   // Its own clock, started here: whatever enrichment did or did not finish, drafting gets
   // its full slice. Unspent enrichment time is NOT donated — the point of the split is that
   // the cheap phase can never eat the expensive one.
+  //
+  // ⚠️ The clock is re-consulted here rather than reused from above. Enrichment just spent
+  // real time, so "there was room a moment ago" is not the same question as "is there room
+  // now", and drafting is the half that must not start with nothing left.
+  const draftRoom = clock.canAfford(MIN_PHASE_MS);
   const draftResult =
-    drafts > 0 ? await runDraftPass({ limit: drafts, deadline: Date.now() + DRAFT_BUDGET_MS }) : null;
+    drafts > 0 && draftRoom
+      ? await runDraftPass({ limit: drafts, deadline: clock.deadlineFor(DRAFT_BUDGET_MS) })
+      : null;
 
-  return { enrich: enrichResult, drafts: draftResult, dryRun: false };
+  const starved = (credits > 0 && !enrichResult) || (drafts > 0 && !draftRoom);
+  return { enrich: enrichResult, drafts: draftResult, dryRun: false, ...(starved ? { outOfTime: true } : {}) };
 }
