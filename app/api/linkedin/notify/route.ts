@@ -69,9 +69,14 @@ export async function POST(request: Request) {
 
   const title = typeof body.title === 'string' ? body.title.slice(0, MAX_TEXT) : '';
   const text = typeof body.text === 'string' ? body.text.slice(0, MAX_TEXT) : '';
-  if (!title && !text) {
-    return Response.json({ ok: false, error: 'send {title, text} from the notification' }, { status: 400 });
-  }
+
+  // ⚠️ LOGGED FIRST, BEFORE ANY EARLY RETURN. The log used to sit further down, past the two
+  // rejection paths — so the requests most worth diagnosing were the ones that left no trace,
+  // and a 400 in `vercel logs` could have been either of two completely different mistakes.
+  // Log the input, then decide what it is.
+  console.log(
+    `[linkedin/notify] title=${JSON.stringify(title)} text=${JSON.stringify(text)}`
+  );
 
   // ⚠️ ORDER MATTERS. Android splits a notification into a title and a body, and LinkedIn uses
   // both shapes: sometimes the whole sentence is in the text ("Kajol accepted your invitation"),
@@ -79,7 +84,11 @@ export async function POST(request: Request) {
   // invitation. Explore their network"). The text is tried FIRST because when it carries the
   // whole sentence, gluing the title on the front would make the app name part of the person's
   // name — "LinkedIn Kajol accepted your invitation" reads as somebody called "LinkedIn Kajol".
-  const candidates = [text, `${title} ${text}`.trim(), title].filter(Boolean);
+  // Trimmed before the emptiness test: two unsubstituted magic-text variables leave a body of
+  // one space, and " " is truthy. Without this a test press reads as a notification whose text
+  // happens to be blank, and gets the unhelpful "not an acceptance" answer instead of the one
+  // that explains itself.
+  const candidates = [text, `${title} ${text}`, title].map((c) => c.trim()).filter(Boolean);
 
   // ⚠️ THE COMMONEST SETUP MISTAKE, ANSWERED IN THE RESPONSE ITSELF. MacroDroid substitutes
   // magic text written in SQUARE brackets — `[not_title]`, `[notification]` — and its picker
@@ -101,15 +110,22 @@ export async function POST(request: Request) {
     );
   }
 
-  // ⚠️ LOGGED, BECAUSE THE CLIENT CANNOT BE DEBUGGED FROM HERE. The caller is a macro on a
-  // phone; when it misfires, the only evidence is whatever MacroDroid chose to show on a 4-inch
-  // screen. `vercel logs` can read this line, so "did the magic text resolve?" and "what did the
-  // parser make of it?" are answerable without asking the person holding the phone to read a
-  // JSON response back. The name is the user's own data in the user's own log.
-  console.log(
-    `[linkedin/notify] title=${JSON.stringify(title)} text=${JSON.stringify(text)} ` +
-      `kinds=${candidates.map((c) => classifyLinkedInText(c).kind).join(',')}`
-  );
+  // ⚠️ AN EMPTY NOTIFICATION IS NOT AN ERROR, IT IS WHAT A REHEARSAL LOOKS LIKE. MacroDroid's
+  // "Test actions" runs the action with no notification behind it, so correctly-written magic
+  // text substitutes to nothing. Answering 400 there paints a red failure on the phone of
+  // somebody whose setup is in fact correct — and the first thing they will do is change
+  // something that was right. So: 200, and say what it means.
+  if (!candidates.length) {
+    console.log('[linkedin/notify] empty — a test press, or a notification with no text');
+    return Response.json({
+      ok: true,
+      recorded: null,
+      note:
+        'Nothing to read. This is exactly what "Test actions" sends, because there is no ' +
+        'notification behind it — if the literal [not_title] text is gone, your brackets are ' +
+        'right. The real proof is a real acceptance.',
+    });
+  }
 
   // ⚠️ `?dry=true` EXISTS BECAUSE THE SETUP IS TESTED BY A HUMAN ON A PHONE. MacroDroid's own
   // "Test actions" button fires the real request, so without this every rehearsal writes a row
