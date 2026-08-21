@@ -81,9 +81,24 @@ export async function POST(request: Request) {
   // name — "LinkedIn Kajol accepted your invitation" reads as somebody called "LinkedIn Kajol".
   const candidates = [text, `${title} ${text}`.trim(), title].filter(Boolean);
 
+  // ⚠️ `?dry=true` EXISTS BECAUSE THE SETUP IS TESTED BY A HUMAN ON A PHONE. MacroDroid's own
+  // "Test actions" button fires the real request, so without this every rehearsal writes a row
+  // that then has to be deleted by hand — which is exactly what happened while this endpoint was
+  // being built ("D'Souza"). It parses and reports, and touches nothing.
+  const dryRun = url.searchParams.get('dry') === 'true';
+
   for (const candidate of candidates) {
     const event = classifyLinkedInText(candidate);
     if (event.kind !== 'accepted' || !event.name) continue;
+
+    if (dryRun) {
+      return Response.json({
+        ok: true,
+        dryRun: true,
+        wouldRecord: event.name,
+        note: 'nothing was written — drop ?dry=true when the macro is working',
+      });
+    }
 
     // `new Date()`, not a timestamp from the phone: a push is relayed within seconds of the
     // event, and a clock we do not control is a worse answer than the one we do.
@@ -106,7 +121,13 @@ export async function POST(request: Request) {
   // little wider than it should be, this is the answer, and it should be readable in
   // MacroDroid's own log without anybody guessing.
   const kinds = candidates.map((c) => classifyLinkedInText(c).kind);
-  return Response.json({ ok: true, recorded: null, kinds, note: 'not an acceptance notification' });
+  return Response.json({
+    ok: true,
+    ...(dryRun ? { dryRun: true } : {}),
+    recorded: null,
+    kinds,
+    note: 'not an acceptance notification',
+  });
 }
 
 /** A GET so the setup can be tested from a browser without a body. */
