@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import {
   deleteFundingItem,
   deleteJob,
+  deleteLinkedInInvite,
   deleteTracked,
   deleteWhatsappLead,
   getFundingContact,
@@ -33,6 +34,7 @@ import { hostOf } from './format';
 import { sendOutreachMail } from './mailer';
 import { runTailorPipeline } from './pipeline';
 import { runDiscovery } from './discover';
+import { logInvite, markAccepted, runLinkedInScan } from './linkedin';
 import { findContact } from './contact';
 import { draftOutreach, runFundingScan } from './funding';
 import {
@@ -128,6 +130,8 @@ export async function runAgent(formData: FormData): Promise<void> {
       await runDiscovery({ notify: false });
     } else if (id === 'funding') {
       await runFundingScan();
+    } else if (id === 'linkedin') {
+      await runLinkedInScan();
     }
   } catch {
     // run-state already recorded as 'error' inside the agent
@@ -691,5 +695,80 @@ export async function tailorTracked(formData: FormData): Promise<void> {
   } else {
     await updateTracked(id, { tailorError: `${result.stage}: ${result.error}` });
   }
+  revalidatePath('/');
+}
+
+/* ---- LinkedIn tracker ---------------------------------------------------------------- */
+
+export type LinkedInFormState = { ok: boolean; message: string };
+
+/**
+ * Log an invitation the user sent by hand.
+ *
+ * ⚠️ THIS IS THE ONLY WAY A PENDING INVITATION CAN BE KNOWN. LinkedIn emails an acceptance and
+ * emails nothing at all when an invitation is merely sent, and there is no API — so "invited,
+ * waiting" is a fact only the person who clicked Connect has. See lib/linkedin-mail.ts.
+ */
+export async function logLinkedInInvite(
+  _prev: LinkedInFormState,
+  formData: FormData
+): Promise<LinkedInFormState> {
+  const name = formData.get('name');
+  if (typeof name !== 'string' || !name.trim()) {
+    return { ok: false, message: 'A name is needed — it is what an acceptance is matched on.' };
+  }
+  const profileUrl = formData.get('profileUrl');
+  const note = formData.get('note');
+  try {
+    const invite = await logInvite({
+      name: name.trim(),
+      profileUrl: typeof profileUrl === 'string' ? profileUrl : undefined,
+      note: typeof note === 'string' ? note : undefined,
+    });
+    revalidatePath('/linkedin');
+    return {
+      ok: true,
+      message: invite.jobLabel
+        ? `Logged ${invite.name}, matched to ${invite.jobLabel}.`
+        : `Logged ${invite.name}.`,
+    };
+  } catch (e) {
+    return { ok: false, message: (e as Error).message };
+  }
+}
+
+/** Mark an invitation accepted by hand — always available, mail or no mail. */
+export async function markLinkedInAccepted(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  if (typeof id !== 'string') return;
+  await markAccepted(id);
+  revalidatePath('/linkedin');
+}
+
+export async function deleteLinkedInRow(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  if (typeof id !== 'string') return;
+  await deleteLinkedInInvite(id);
+  revalidatePath('/linkedin');
+}
+
+/**
+ * Scan the mailbox for LinkedIn acceptances, from the dashboard.
+ *
+ * The cron runs this too; the button exists for the same reason every other one here does —
+ * the curl switches need a CRON_SECRET that reads back redacted, so a page is the only place a
+ * human can ask for a pass to run.
+ *
+ * Returns nothing on purpose. The pass already writes a full summary onto its agent record
+ * ("no LinkedIn mail in the last 30 days …"), and /linkedin renders that, so a second reporting
+ * path here would be a second thing to keep true — and it would vanish on the next reload.
+ */
+export async function scanLinkedInMailNow(): Promise<void> {
+  try {
+    await runLinkedInScan();
+  } catch {
+    // recorded as state:'error' on the agent card inside the pass
+  }
+  revalidatePath('/linkedin');
   revalidatePath('/');
 }

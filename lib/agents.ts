@@ -86,6 +86,16 @@ export const AGENTS: AgentMeta[] = [
     status: 'live',
   },
   {
+    id: 'linkedin',
+    name: 'LinkedIn Tracker',
+    description:
+      "Reads LinkedIn's own notification mail to record who accepted an invitation, and ties each acceptance to the job row that person posted. There is no LinkedIn API for invitations; the mailbox is the only signal, and a pending invite is whatever you logged by hand.",
+    kind: 'cron',
+    cadence: 'daily 09:17 IST',
+    status: 'live',
+    runnable: true,
+  },
+  {
     id: 'job-mailer',
     name: 'Job Applications',
     description:

@@ -10,6 +10,7 @@ import type {
   Job,
   JobContact,
   JobOutreach,
+  LinkedInInvite,
   OutreachSequence,
   ScrapedJd,
   StoredPdf,
@@ -34,6 +35,11 @@ const TRACKER_INDEX = 'tracker:index';
 const FUNDING_INDEX = 'funding:index';
 const FUNDING_SEEN = 'funding:seen';
 const WA_LEAD_INDEX = 'walead:index';
+/**
+ * LinkedIn invitations. Scored by the row's most meaningful time — the acceptance if there is
+ * one, else the invitation — so the newest movement is first without re-sorting in the page.
+ */
+const LINKEDIN_INDEX = 'linkedin:index';
 /**
  * Follow-up sequences get their own index rather than riding the funding rows.
  *
@@ -61,6 +67,7 @@ const waSeenKey = (id: string) => `wa:seen:${id}`;
 const followupKey = (id: string) => `followup:${id}`;
 const waLeadKey = (id: string) => `walead:${id}`;
 const agentKey = (id: string) => `agent:${id}`;
+const linkedinKey = (id: string) => `linkedin:${id}`;
 const jdKey = (id: string) => `jd:${id}`;
 const tailoredKey = (id: string) => `tailored:${id}`;
 const pdfKey = (id: string) => `pdf:${id}`;
@@ -335,6 +342,50 @@ export async function getAllOutreachSequences(): Promise<OutreachSequence[]> {
   const ids = (await redis().smembers(FOLLOWUP_ALL)) as string[];
   const map = await getOutreachSequences(ids);
   return [...map.values()];
+}
+
+/**
+ * ---- LinkedIn invitations ----
+ *
+ * Keyed by a normalised name (`li:aayushjain`), NOT by the notification's message id: the
+ * point of a row is the PERSON, and the same person can be invited twice, accepted once, and
+ * also logged by hand. An upsert on the same key merges those into one row instead of showing
+ * the user three.
+ */
+export async function saveLinkedInInvite(invite: LinkedInInvite): Promise<void> {
+  const score = +new Date(invite.acceptedAt ?? invite.invitedAt ?? invite.createdAt);
+  const pipe = redis().pipeline();
+  pipe.set(linkedinKey(invite.id), JSON.stringify(invite));
+  pipe.zadd(LINKEDIN_INDEX, { score, member: invite.id });
+  await pipe.exec();
+}
+
+export async function getLinkedInInvite(id: string): Promise<LinkedInInvite | null> {
+  const raw = await redis().get(linkedinKey(id));
+  if (!raw) return null;
+  return typeof raw === 'string' ? (JSON.parse(raw) as LinkedInInvite) : (raw as LinkedInInvite);
+}
+
+/** Newest movement first. */
+export async function getLinkedInInvites(limit = 200): Promise<LinkedInInvite[]> {
+  const ids = (await redis().zrange(LINKEDIN_INDEX, 0, limit - 1, { rev: true })) as string[];
+  if (ids.length === 0) return [];
+  const pipe = redis().pipeline();
+  for (const id of ids) pipe.get(linkedinKey(id));
+  const raws = (await pipe.exec()) as (string | LinkedInInvite | null)[];
+  const out: LinkedInInvite[] = [];
+  for (const raw of raws) {
+    if (!raw) continue;
+    out.push(typeof raw === 'string' ? (JSON.parse(raw) as LinkedInInvite) : raw);
+  }
+  return out;
+}
+
+export async function deleteLinkedInInvite(id: string): Promise<void> {
+  const pipe = redis().pipeline();
+  pipe.del(linkedinKey(id));
+  pipe.zrem(LINKEDIN_INDEX, id);
+  await pipe.exec();
 }
 
 export async function deleteOutreachSequence(id: string): Promise<void> {

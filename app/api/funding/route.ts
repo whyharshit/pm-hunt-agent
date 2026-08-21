@@ -3,6 +3,7 @@ import { runFollowUps } from '@/lib/followup';
 import { runFundingScan } from '@/lib/funding';
 import { FUNDING_INVOCATION_MS, createInvocationClock } from '@/lib/invocation-clock';
 import { runJobAutoSend } from '@/lib/job-autosend';
+import { runLinkedInScan } from '@/lib/linkedin';
 import { runJobPrepare } from '@/lib/job-prepare';
 import { runPrepare } from '@/lib/prepare';
 import { fetchFundingNews } from '@/lib/sources/fundingnews';
@@ -141,6 +142,16 @@ async function handle(request: Request) {
         ? await runFollowUps({ dryRun: followups === 'dry', clock })
         : null;
 
+    // ⚠️ LAST ON PURPOSE, and it is the only pass that has earned that place. The LinkedIn scan
+    // re-reads a 30-day window every run instead of tracking where it left off, so a run that is
+    // skipped or starved loses NOTHING — the next one sees the same emails and reaches the same
+    // conclusion. Every other pass in this route either sends mail or feeds something that does.
+    //
+    // It rides the same trigger as the job passes: this tracker exists to say who accepted an
+    // invitation about a job, and `?jobs=off` means "leave the job pipeline alone today".
+    const linkedinResult =
+      shouldRunJobs || jobsDry ? await runLinkedInScan({ dryRun: jobsDry, clock }) : null;
+
     if (prepareResult || autosendResult || followupResult || jobPrepareResult) {
       return Response.json({
         ok: true,
@@ -150,6 +161,7 @@ async function handle(request: Request) {
         ...(followupResult ? { followups: followupResult } : {}),
         ...(jobPrepareResult ? { jobPrepare: jobPrepareResult } : {}),
         ...(jobSendResult ? { jobSend: jobSendResult } : {}),
+        ...(linkedinResult ? { linkedin: linkedinResult } : {}),
         // How the invocation actually spent itself. `vercel logs` can read this, and it is
         // the only way to tell "nothing was due" apart from "there was no time left" without
         // reading Redis, which the CLI cannot do.

@@ -8,7 +8,7 @@ import Link from 'next/link';
 export function Nav({
   current,
 }: {
-  current: 'home' | 'mail' | 'funding' | 'jobs' | 'paste' | 'database';
+  current: 'home' | 'mail' | 'linkedin' | 'funding' | 'jobs' | 'paste' | 'database';
 }) {
   const tab = (href: string, key: typeof current, label: string) => (
     <Link
@@ -30,6 +30,7 @@ export function Nav({
       {/* Second, not last: "has anybody replied" is the question asked most often, and it had
           no page at all until 2026-08-21. */}
       {tab('/mail', 'mail', 'Mail')}
+      {tab('/linkedin', 'linkedin', 'LinkedIn')}
       {tab('/funding', 'funding', 'Funding outreach')}
       {tab('/jobs', 'jobs', 'Discovered jobs')}
       {tab('/paste', 'paste', 'Paste a post')}

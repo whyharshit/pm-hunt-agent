@@ -338,6 +338,38 @@ export type WhatsappLead = {
   status: 'new' | 'contacted' | 'skipped';
 };
 
+/**
+ * One LinkedIn invitation, and whether it was accepted.
+ *
+ * ⚠️ ACCEPTANCE IS THE ONLY STATE LINKEDIN WILL TELL US ABOUT, and only by email. There is no
+ * API for invitations at any tier, and a PENDING invitation appears nowhere except LinkedIn's
+ * own "Sent" page — so `invitedAt` is always something a human recorded, while `acceptedAt` can
+ * come from either the notification mail (lib/linkedin-mail.ts) or a human. A row can exist
+ * with an acceptance and no invitation date: the mail arrives whether or not anybody logged the
+ * invite, and dropping it would be losing the only fact we actually have.
+ */
+export type LinkedInInvite = {
+  /** `li:<name with punctuation and case removed>`, so the same person is one row. */
+  id: string;
+  name: string;
+  profileUrl?: string;
+  /** Anything the user wants on the row: their company, where the invite came from. */
+  note?: string;
+  /** When the user says they sent it. Absent when only the acceptance is known. */
+  invitedAt?: string;
+  /** When LinkedIn said they accepted, off the notification's date. */
+  acceptedAt?: string;
+  acceptedVia?: 'email' | 'manual';
+  /** The notification that proved it — an audit trail, and it keeps re-scans idempotent. */
+  messageId?: string;
+  /** A discovered job row this person posted, matched by name. */
+  jobId?: string;
+  /** How that row reads, captured at link time so a deleted job leaves a legible trace. */
+  jobLabel?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type AgentRun = {
   agentId: string;
   state: 'idle' | 'running' | 'ok' | 'error';

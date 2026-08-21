@@ -49,6 +49,8 @@ export const config = {
     // /mail lists real recruiter addresses and who has answered. Added with the route, in the
     // same commit, for the reason written above.
     '/mail',
+    // Names, profile links and who accepted. Same rule, same commit.
+    '/linkedin',
     '/funding',
     '/jobs',
     '/paste',
