@@ -34,7 +34,7 @@ import { hostOf } from './format';
 import { sendOutreachMail } from './mailer';
 import { runTailorPipeline } from './pipeline';
 import { runDiscovery } from './discover';
-import { logInvite, markAccepted, runLinkedInScan } from './linkedin';
+import { importConnections, logInvite, markAccepted, runLinkedInScan } from './linkedin';
 import { findContact } from './contact';
 import { draftOutreach, runFundingScan } from './funding';
 import {
@@ -771,4 +771,53 @@ export async function scanLinkedInMailNow(): Promise<void> {
   }
   revalidatePath('/linkedin');
   revalidatePath('/');
+}
+
+/**
+ * Import LinkedIn's connections export.
+ *
+ * ⚠️ THIS IS THE TRACKER'S REAL INPUT, not a convenience. Two acceptances on 2026-08-21/22
+ * produced no email whatsoever — LinkedIn sent phone notifications and nothing else — so the
+ * mail parser has nothing to read. The CSV comes from LinkedIn → Settings → Data privacy → Get
+ * a copy of your data → Connections, and it states, per person, the day the connection was
+ * made. See lib/linkedin-csv.ts.
+ *
+ * Takes either an uploaded file or pasted text, because a phone browser cannot always hand a
+ * file to a form and the file is small enough to paste.
+ */
+export async function importLinkedInCsv(
+  _prev: LinkedInFormState,
+  formData: FormData
+): Promise<LinkedInFormState> {
+  const file = formData.get('csv');
+  const pasted = formData.get('pasted');
+  const days = Number(formData.get('days') ?? 90);
+
+  let text = '';
+  if (file instanceof File && file.size > 0) text = await file.text();
+  else if (typeof pasted === 'string') text = pasted;
+
+  if (!text.trim()) {
+    return { ok: false, message: 'Choose the Connections.csv file, or paste its contents.' };
+  }
+
+  try {
+    const r = await importConnections(text, {
+      windowDays: Number.isFinite(days) && days >= 0 ? days : 90,
+    });
+    revalidatePath('/linkedin');
+    if (r.error) return { ok: false, message: r.error };
+
+    const parts = [
+      `${r.parsed} connections read`,
+      r.added.length ? `${r.added.length} new: ${r.added.slice(0, 6).join(', ')}${r.added.length > 6 ? '…' : ''}` : 'none new',
+      r.updated ? `${r.updated} refreshed` : '',
+      r.linkedToJobs ? `${r.linkedToJobs} tied to a job row` : '',
+      r.skippedOld ? `${r.skippedOld} older than the window and not tracked` : '',
+      r.unusable.length ? `${r.unusable.length} unusable (${r.unusable[0].why})` : '',
+    ].filter(Boolean);
+    return { ok: r.added.length > 0 || r.updated > 0, message: parts.join(' · ') };
+  } catch (e) {
+    return { ok: false, message: (e as Error).message };
+  }
 }

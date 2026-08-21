@@ -4,7 +4,12 @@ import { getAgentRun, getLinkedInInvites, getOutreachSequences } from '@/lib/sto
 import { runDisplayState } from '@/lib/agents';
 import { mailTimeline } from '@/lib/mail-timeline';
 import { DeleteButton } from '../delete-button';
-import { LogInviteForm, MarkAcceptedButton, ScanLinkedInButton } from '../linkedin-form';
+import {
+  ImportConnectionsForm,
+  LogInviteForm,
+  MarkAcceptedButton,
+  ScanLinkedInButton,
+} from '../linkedin-form';
 import { Nav } from '../nav';
 import type { AgentRun, LinkedInInvite, OutreachSequence } from '@/lib/types';
 
@@ -21,20 +26,25 @@ export const maxDuration = 60;
 /**
  * The LinkedIn tracker.
  *
- * HOW ACCEPTANCE IS KNOWN AT ALL, because it is the first question anyone asks. There is no
- * LinkedIn API for invitations — the Connections and Invitations endpoints are closed to third
- * parties at every tier — and a pending invitation appears nowhere but LinkedIn's own Sent page.
- * The one machine-readable signal is the email LinkedIn sends the account owner when somebody
- * accepts, so this reads that over the IMAP session the follow-up pass already uses, with an
- * allowlist of acceptance phrasings (lib/linkedin-mail.ts).
+ * HOW ACCEPTANCE IS KNOWN, because it is the first question anyone asks and the first two
+ * answers turned out to be wrong.
  *
- * ⚠️ AND IT IS NOT ARRIVING YET. Measured 2026-08-21: 120 days of INBOX and All Mail hold ZERO
- * messages from linkedin.com, so LinkedIn is notifying a different address. Until those are
- * forwarded here the automatic half finds nothing and the page runs on hand-logged rows — which
- * is why logging and "mark accepted" are first-class controls and not a fallback.
+ * There is no LinkedIn API for invitations — Connections and Invitations are closed to third
+ * parties at every tier — so the plan was to read the "X accepted your invitation" email
+ * (lib/linkedin-mail.ts). ⚠️ **THAT EMAIL IS NOT SENT.** Measured 2026-08-22 on two real
+ * acceptances: the user invited two friends, both accepted, and no mail arrived anywhere —
+ * only phone notifications, which leave no trace anything can read. LinkedIn emails that
+ * category only if its EMAIL channel is switched on, and for app users it is off. A mail
+ * forward was set up first and forwarded nothing, because there was nothing to forward.
  *
- * The third option, scraping with a session cookie, is deliberately not built: it breaks the
- * moment LinkedIn rotates the cookie and it is against their terms.
+ * So the input that works is LinkedIn's own export: Settings → Data privacy → Get a copy of
+ * your data → Connections, a CSV of every connection WITH THE DATE IT WAS MADE
+ * (lib/linkedin-csv.ts). The user's own data, offered by LinkedIn, no scraping, no cookie.
+ * The mail parser stays wired for the day those notifications are enabled; it costs nothing.
+ *
+ * Hand-logging remains first-class: the export is direction-blind (it cannot say who invited
+ * whom) and it says nothing about an invitation still pending, which only the person who
+ * clicked Connect knows.
  */
 
 function daysBetween(from: string, to: string): number | null {
@@ -81,7 +91,9 @@ function InviteCard({
             title={
               invite.acceptedVia === 'email'
                 ? 'read from a LinkedIn notification email'
-                : 'marked by hand'
+                : invite.acceptedVia === 'export'
+                  ? "from LinkedIn's own connections export — the date is the day it happened"
+                  : 'marked by hand'
             }
           >
             via {invite.acceptedVia ?? 'manual'}
@@ -216,9 +228,10 @@ export default async function LinkedInPage({
         <header className="mb-4">
           <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">LinkedIn</h1>
           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            Who was invited, and who accepted. LinkedIn has no API for invitations, so an
-            acceptance is read from the notification email it sends you; a pending invitation
-            exists here only because you logged it.
+            Who was invited, and who accepted. LinkedIn has no API for invitations and, as of
+            22 Aug, does not email acceptances to this account at all — two accepted requests
+            produced phone notifications and no mail. So connections come from your own LinkedIn
+            export, and a pending invitation exists here only because you logged it.
           </p>
         </header>
 
@@ -227,6 +240,8 @@ export default async function LinkedInPage({
             {error}
           </p>
         )}
+
+        <ImportConnectionsForm />
 
         <LogInviteForm />
 
@@ -237,7 +252,7 @@ export default async function LinkedInPage({
           <span className="text-xs text-zinc-500 dark:text-zinc-400">
             {run?.summary
               ? `${run.summary}${run.finishedAt ? ` · ${fmtDate(run.finishedAt)}` : ''}`
-              : 'Never scanned. LinkedIn mail is not reaching this mailbox yet — forward it here and this starts filling itself in.'}
+              : 'Never scanned. LinkedIn is not emailing acceptances to this account — the import above is the reliable route. This stays wired in case those emails are ever switched on.'}
           </span>
           {scanState === 'error' && run?.error && (
             <span className="text-xs text-red-600 dark:text-red-400">⚠ {run.error}</span>

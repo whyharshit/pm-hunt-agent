@@ -6,6 +6,7 @@ import {
   personKey,
   type LinkedInEventKind,
 } from './linkedin-mail';
+import { parseConnectionsCsv, type ConnectionRow } from './linkedin-csv';
 import { companyLabel, posterName } from './postjob';
 import {
   getLinkedInInvite,
@@ -292,6 +293,103 @@ export async function runLinkedInScan(
     return result;
   }
 }
+
+/**
+ * Import LinkedIn's own connections export.
+ *
+ * ⚠️ THIS IS THE INPUT THAT ACTUALLY WORKS. Two real acceptances on 2026-08-21/22 produced no
+ * email at all — only phone notifications — so the mail parser, correct as it is, has nothing
+ * to read. The CSV is the user's own data, offered by LinkedIn for download, and it carries the
+ * one fact the tracker needs: a per-person date the connection was made.
+ *
+ * ⚠️ ONLY A RECENT WINDOW IS IMPORTED, and that is a feature. A connections file holds every
+ * contact the account has ever made; importing all of it would bury the handful of invitations
+ * this project is actually tracking under years of college friends, and write a Redis row for
+ * each. A row is kept when it is inside the window, OR when it is already tracked here, OR when
+ * the person posted a job this project has seen — the three ways a connection is relevant.
+ * `windowDays: 0` means import everything, for whoever wants the whole address book.
+ */
+export type ImportResult = {
+  /** Rows the file yielded. */
+  parsed: number;
+  /** Newly recorded as connected. */
+  added: string[];
+  /** Already known, refreshed with the export's date or details. */
+  updated: number;
+  /** Outside the window and matching nothing tracked. */
+  skippedOld: number;
+  /** Lines the parser could not use, with reasons. */
+  unusable: Array<{ line: string; why: string }>;
+  linkedToJobs: number;
+  error?: string;
+};
+
+export async function importConnections(
+  csv: string,
+  opts: { windowDays?: number } = {}
+): Promise<ImportResult> {
+  const windowDays = opts.windowDays ?? 90;
+  const parsedFile = parseConnectionsCsv(csv);
+  const result: ImportResult = {
+    parsed: parsedFile.rows.length,
+    added: [],
+    updated: 0,
+    skippedOld: 0,
+    unusable: parsedFile.skipped.slice(0, 10),
+    linkedToJobs: 0,
+    ...(parsedFile.error ? { error: parsedFile.error } : {}),
+  };
+  if (parsedFile.error || parsedFile.rows.length === 0) return result;
+
+  const jobs = await getRecentJobs(200);
+  const posters = postersByName(jobs);
+  const cutoff = windowDays > 0 ? Date.now() - windowDays * 24 * 60 * 60 * 1000 : -Infinity;
+
+  for (const row of parsedFile.rows) {
+    const id = linkedInInviteId(row.name);
+    const existing = await getLinkedInInvite(id);
+    const job = posters.get(personKey(row.name));
+    const relevant = +new Date(row.connectedOn) >= cutoff || Boolean(existing) || Boolean(job);
+    if (!relevant) {
+      result.skippedOld += 1;
+      continue;
+    }
+
+    const now = new Date().toISOString();
+    const wasAccepted = Boolean(existing?.acceptedAt);
+    const invite: LinkedInInvite = {
+      ...(existing ?? { id, createdAt: now }),
+      id,
+      name: existing?.name?.trim() ? existing.name : row.name,
+      // The export's own profile URL is better than anything typed by hand.
+      ...(row.profileUrl ? { profileUrl: row.profileUrl } : {}),
+      ...(!existing?.note && (row.position || row.company)
+        ? { note: [row.position, row.company].filter(Boolean).join(' · ') }
+        : {}),
+      // ⚠️ THE EXPORT'S DATE WINS OVER A HAND-MARKED ONE. "Mark accepted" stamps the moment
+      // somebody pressed the button, which is whenever they noticed; the export states the day
+      // it happened. It does NOT win over an earlier date from another source.
+      acceptedAt:
+        existing?.acceptedAt && existing.acceptedAt < row.connectedOn
+          ? existing.acceptedAt
+          : row.connectedOn,
+      acceptedVia: existing?.acceptedVia === 'email' ? 'email' : 'export',
+      ...(job && !existing?.jobId
+        ? { jobId: job.id, jobLabel: `${job.title} · ${companyLabel(job)}` }
+        : {}),
+      updatedAt: now,
+    };
+    await saveLinkedInInvite(invite);
+    if (wasAccepted) result.updated += 1;
+    else result.added.push(invite.name);
+    if (job) result.linkedToJobs += 1;
+  }
+
+  return result;
+}
+
+/** Exported for the check script: the shape a parsed file takes before storage sees it. */
+export type { ConnectionRow };
 
 /** Record an invitation the user says they sent. The only way a PENDING invite can be known. */
 export async function logInvite(args: {

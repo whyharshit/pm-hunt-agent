@@ -2,7 +2,12 @@
 
 import { useActionState } from 'react';
 import { useFormStatus } from 'react-dom';
-import { logLinkedInInvite, scanLinkedInMailNow, type LinkedInFormState } from '@/lib/actions';
+import {
+  importLinkedInCsv,
+  logLinkedInInvite,
+  scanLinkedInMailNow,
+  type LinkedInFormState,
+} from '@/lib/actions';
 
 const initial: LinkedInFormState = { ok: false, message: '' };
 
@@ -117,5 +122,88 @@ export function MarkAcceptedButton({
       <input type="hidden" name="id" value={id} />
       <MarkInner />
     </form>
+  );
+}
+
+/**
+ * Import LinkedIn's connections export.
+ *
+ * ⚠️ THE ONE INPUT THAT WORKS. Two real acceptances produced no email at all — LinkedIn sent
+ * phone notifications and nothing else — so this, not the mailbox, is how the tracker learns
+ * who connected. The file is the user's own data, downloaded from LinkedIn; nothing is scraped.
+ */
+export function ImportConnectionsForm() {
+  const [state, formAction, pending] = useActionState(importLinkedInCsv, initial);
+
+  return (
+    <div className="mb-4 rounded-lg border border-indigo-200 bg-indigo-50/40 p-3 dark:border-indigo-900 dark:bg-indigo-950/20">
+      <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">
+        Import your connections from LinkedIn
+      </p>
+      <p className="mt-1 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+        LinkedIn only emails &quot;X accepted your invitation&quot; if you have turned that email
+        on, and it did not for your last two acceptances — so the reliable source is the export.
+        On LinkedIn: <span className="font-medium">Settings &amp; Privacy → Data privacy → Get a
+        copy of your data → Connections → Request archive</span>. It arrives by email in a few
+        minutes; upload the <code>Connections.csv</code> here. Re-import any time — rows update
+        rather than duplicate.
+      </p>
+      <form action={formAction} className="mt-2 flex flex-wrap items-center gap-2">
+        <input
+          type="file"
+          name="csv"
+          accept=".csv,text/csv"
+          className="max-w-full text-xs text-zinc-600 file:mr-2 file:h-7 file:rounded file:border file:border-zinc-300 file:bg-white file:px-2 file:text-xs file:text-zinc-700 dark:text-zinc-300 dark:file:border-zinc-700 dark:file:bg-zinc-900 dark:file:text-zinc-200"
+        />
+        <label className="flex items-center gap-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+          last
+          <input
+            name="days"
+            type="number"
+            min={0}
+            defaultValue={90}
+            className="h-7 w-16 rounded border border-zinc-300 bg-white px-1.5 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+          />
+          days (0 = all)
+        </label>
+        <button
+          type="submit"
+          disabled={pending}
+          className="h-7 rounded border border-indigo-300 bg-indigo-50 px-3 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-200 dark:hover:bg-indigo-900"
+        >
+          {pending ? 'Importing…' : 'Import'}
+        </button>
+      </form>
+      <details className="mt-2">
+        <summary className="cursor-pointer text-[11px] text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">
+          or paste the file contents instead
+        </summary>
+        <form action={formAction} className="mt-1.5">
+          <textarea
+            name="pasted"
+            rows={4}
+            placeholder="First Name,Last Name,URL,Email Address,Company,Position,Connected On…"
+            className="w-full rounded border border-zinc-300 bg-white p-2 font-mono text-[11px] text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+          />
+          <input type="hidden" name="days" value={90} />
+          <button
+            type="submit"
+            disabled={pending}
+            className="mt-1 h-7 rounded border border-zinc-300 bg-white px-3 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+          >
+            {pending ? 'Importing…' : 'Import pasted text'}
+          </button>
+        </form>
+      </details>
+      {state.message && (
+        <p
+          className={`mt-1.5 text-[11px] ${
+            state.ok ? 'text-green-700 dark:text-green-400' : 'text-amber-700 dark:text-amber-400'
+          }`}
+        >
+          {state.message}
+        </p>
+      )}
+    </div>
   );
 }
