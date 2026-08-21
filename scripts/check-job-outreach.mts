@@ -265,6 +265,71 @@ check(
   'no en or em dash can reach the body through a title',
   'standing rule, 2026-08-08'
 );
+
+// ⚠️ THE ROLE IS NOT ALWAYS THE HEAD — the bug the user reported on 2026-08-21, off a real
+// draft. A District application opened "your post about At District roles at District". The
+// row's title was the post's FIRST LINE (`titleFor` falls back to it when the matcher reads no
+// role), that line opened with a context clause, and cutting at the first separator handed the
+// email "At District" as the role. `looksLikeRole` then waved it through, because every test it
+// ran was a test for NOT being a role and two unpunctuated words fail none of them.
+const ROLE_NOT_AT_THE_HEAD: Array<[string, string]> = [
+  ['At District, we are hiring a Strategy & Ops Intern', 'Strategy & Ops'],
+  ['At District, we are looking for a Strategy & Ops intern', 'Strategy & Ops'],
+  // " at " is a separator now, so the employer cannot weld itself onto the role either. This
+  // one used to yield "Strategy & Ops at District" -> "…about Strategy & Ops at District roles
+  // at District".
+  ['Strategy & Ops Intern at District', 'Strategy & Ops'],
+  ['At Razorpay, hiring a Product Management Intern', 'Product Management'],
+  // The head is kept when the head IS the role. Nothing about the common case moves.
+  ['Product Manager at District', 'Product Manager'],
+];
+for (const [title, want] of ROLE_NOT_AT_THE_HEAD) {
+  check(rolePhrase(title) === want, `"${title.slice(0, 46)}…" -> "${want}"`, rolePhrase(title));
+}
+
+// And when NO fragment carries a role, the clause must drop rather than interpolate whatever
+// the head happened to be. A preposition is not a role.
+for (const notARole of [
+  'At District',
+  'At District, we are building the go-to app for going out',
+  'Internship at District',
+  'We are growing the team',
+]) {
+  check(
+    !looksLikeRole(rolePhrase(notARole)),
+    `"${notARole.slice(0, 46)}" names no role, so the clause drops`,
+    rolePhrase(notARole)
+  );
+}
+
+// End to end, because the phrase being right is not the same as the email being right.
+const districtDraft = renderJobOutreach(
+  job({
+    title: 'At District, we are hiring a Strategy & Ops Intern',
+    company: 'District',
+    tags: [`${POSTER_TAG}Rajat Sharma`],
+  }),
+  { ...contact, people: [{ name: 'Rajat Sharma' }] }
+);
+const districtText = districtDraft?.text ?? '';
+check(
+  districtText.includes('your post about Strategy & Ops roles at District'),
+  'the District row names the role the post named',
+  districtText.slice(0, 120)
+);
+check(!/At District roles/i.test(districtText), 'and never "At District roles at District"');
+check(districtText.startsWith('Hi Rajat,'), 'the greeting is unaffected');
+
+// The degraded shape of the same row: a first line that names no role at all.
+const noRoleDraft = renderJobOutreach(
+  job({ title: 'At District, we are building the go-to app for going out', company: 'District' }),
+  { ...contact, people: [{ name: 'Rajat Sharma' }] }
+);
+check(
+  Boolean(noRoleDraft?.text.includes('I came across your hiring post for District')),
+  'a row with no nameable role falls back to the shorter sentence',
+  noRoleDraft?.text.slice(0, 120)
+);
 // And the two junk shapes must STILL degrade, now that the role test runs on the cut phrase.
 check(!looksLikeRole(rolePhrase(HEADLINE)), 'a funding headline still fails after the cut');
 check(
@@ -349,6 +414,12 @@ for (const old of [
   'template:job-team-v3',
   'template:job-pitch-v3',
   'template:job-team-pitch-v3',
+  // v4 joined them on 2026-08-21: it interpolated the head of the title as the role, which is
+  // how "At District roles at District" reached a recruiter.
+  'template:job-v4',
+  'template:job-team-v4',
+  'template:job-pitch-v4',
+  'template:job-team-pitch-v4',
 ]) {
   check(!isCurrentJobTemplate(old), `${old} is stale and must be re-rendered`);
 }
@@ -369,6 +440,7 @@ check(
 // would report every hand-edited draft as stale and re-render it, silently discarding the
 // edit — the one outcome the edit flag exists to prevent.
 check(isStaleJobDraft('template:job-v3'), 'an untouched v3 draft is stale');
+check(isStaleJobDraft('template:job-v4'), 'and so is an untouched v4 draft, as of 2026-08-21');
 check(!isStaleJobDraft(fresh?.model ?? ''), 'a freshly rendered draft is not stale');
 check(
   !isStaleJobDraft(`${fresh?.model}+edited`),
@@ -378,6 +450,7 @@ check(
   !isStaleJobDraft('template:job-v3+edited'),
   'and that holds even when the edit was made to OLD copy — it belongs to whoever wrote it'
 );
+check(!isStaleJobDraft('template:job-v4+edited'), 'the same for a hand-edited v4 draft');
 
 console.log('\n--- template: the "Hi team," variant ---');
 const teamDraft = renderJobOutreach(job(), contact, { greeting: 'team' });

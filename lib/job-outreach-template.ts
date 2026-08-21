@@ -1,7 +1,7 @@
 import { categoryLabel } from './job-category';
 import { isPitchTarget } from './filters';
 import { firstName } from './outreach-template';
-import { employerName } from './postjob';
+import { employerName, isRoleText } from './postjob';
 import type { Job, JobContact, JobOutreach } from './types';
 
 /**
@@ -60,7 +60,40 @@ const HIRING_PREFIX_RE =
  * Growth" is cut. En and em dashes are cut wherever they appear: they are never inside a word,
  * and the standing no-dash rule (2026-08-08) means one must never reach the body anyway.
  */
-const ROLE_TAIL_RE = /[|•·()\[\]{}\/,;:]|\s[-–—]\s|[–—]/;
+/**
+ * ⚠️ ` at ` IS A SEPARATOR TOO, added 2026-08-21. "Strategy & Ops Intern at District" cut to
+ * "Strategy & Ops at District", and the sentence read "your post about Strategy & Ops at
+ * District roles at District" - the employer welded onto the role and then named again by the
+ * clause that already names it. In a job title everything after " at " is the employer, which
+ * `employerName` answers separately. Spaces on both sides, so a role that merely starts with
+ * those letters is untouched.
+ */
+const ROLE_TAIL_RE = /[|•·()\[\]{}\/,;:]|\s[-–—]\s|[–—]|\s+at\s+/i;
+
+/**
+ * Filler a fragment can open with once its announcement prefix is gone: "we are hiring a
+ * Strategy & Ops Intern" leaves "a Strategy & Ops", and "about a Strategy & Ops roles" is not
+ * a sentence anybody wrote.
+ */
+const LEADING_FILLER_RE = /^(?:an?|the|our|your|this|for)\s+/i;
+
+/** One fragment of a title, stripped of everything that is not the role itself. */
+function cleanFragment(fragment: string): string {
+  return fragment
+    // ⚠️ TRIMMED FIRST. Both prefix patterns are anchored to the start, and a fragment cut out
+    // of the MIDDLE of a title arrives with the separator's whitespace still attached - so an
+    // untrimmed " we are hiring a Strategy & Ops Intern" kept its announcement whole and put
+    // it in the email.
+    .trim()
+    .replace(HIRING_PREFIX_RE, '')
+    .replace(LEADING_FILLER_RE, '')
+    .replace(/\b(intern|internship|interns|internships)\b/gi, ' ')
+    // Trailing punctuation, `.` and `!` included. "…Gift Cards (India)." used to keep its full
+    // stop and read "about Product Manager Gift Cards India . roles".
+    .replace(/[\s.,;:!?\-–—]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 /**
  * The role as it reads inside "your post about ___ roles".
@@ -77,27 +110,34 @@ const ROLE_TAIL_RE = /[|•·()\[\]{}\/,;:]|\s[-–—]\s|[–—]/;
  * a way for a stranger's typos to end up in the user's email.
  */
 export function rolePhrase(title: string): string {
-  const cleaned = title
+  const fragments = title
     // Leading emoji and rule characters sit in FRONT of the announcement, so they come off
     // first or HIRING_PREFIX_RE never gets to match.
     .replace(/^[^\p{L}\p{N}]+/u, '')
-    .replace(HIRING_PREFIX_RE, '')
-    // ⚠️ CUT AT THE FIRST SEPARATOR, do not delete it. This used to strip brackets and pipes
-    // and leave the fragments touching, which WELDED the qualifier onto the role: the user's
-    // own live rows produced "your post about Product Management Mobile Premier League MPL US
-    // roles at Mobile Premier League (MPL)" and "about Product Manager Remote Entry-Level
-    // roles". A title's role is its HEAD; everything after a pipe, a bracket, a spaced dash or
-    // a comma is a qualifier - the company, the city, the seniority, the contract type.
-    .split(ROLE_TAIL_RE)[0]
-    .replace(/\b(intern|internship|interns|internships)\b/gi, ' ')
-    // Trailing punctuation, `.` and `!` included. "…Gift Cards (India)." used to keep its full
-    // stop and read "about Product Manager Gift Cards India . roles".
-    .replace(/[\s.,;:!?\-–—]+$/, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+    // ⚠️ CUT AT A SEPARATOR, do not delete it. This used to strip brackets and pipes and leave
+    // the fragments touching, which WELDED the qualifier onto the role: the user's own live
+    // rows produced "your post about Product Management Mobile Premier League MPL US roles at
+    // Mobile Premier League (MPL)" and "about Product Manager Remote Entry-Level roles".
+    // Everything after a pipe, a bracket, a spaced dash, a comma or " at " is a qualifier -
+    // the company, the city, the seniority, the contract type.
+    .split(ROLE_TAIL_RE)
+    .map(cleanFragment)
+    .filter(Boolean);
+
+  // ⚠️ THE ROLE IS NOT ALWAYS THE HEAD, and assuming it was is the bug the user reported on
+  // 2026-08-21. A row titled "At District, we are hiring a Strategy & Ops Intern" - which is
+  // what `titleFor` produces when the matcher reads no role and the post's FIRST LINE becomes
+  // the title - has a head of "At District", so an application went out about "At District
+  // roles at District". The head was a context clause; the role was two fragments later.
+  //
+  // So take the first fragment that actually carries a role signal, and fall back to the head
+  // only when no fragment does. `isRoleText` is Discover's own definition of a target role
+  // (lib/filters.ts ROLE_PATTERNS) rather than a second opinion invented here - the
+  // Chief-of-Staff bug survived for exactly as long as there were two of those.
+  const chosen = fragments.find(isRoleText) ?? fragments[0] ?? '';
   // '' rather than 'the'. A title that is ALL announcement ("We are hiring!") has to drop the
   // clause, not write "your post about the roles"; the callers below check for the empty string.
-  return cleaned;
+  return chosen;
 }
 
 /**
@@ -117,6 +157,13 @@ export function rolePhrase(title: string): string {
 export function looksLikeRole(title: string): boolean {
   const t = title.trim();
   if (!t || t.length > 60) return false;
+  // ⚠️ THE POSITIVE TEST, added 2026-08-21, and it is the half that was missing. Every rule
+  // below is a tell that a string is NOT a role - too long, sentence punctuation, currency,
+  // funding words - and "At District" has none of them: two words, no punctuation, waved
+  // straight through into "your post about At District roles at District". A role has to LOOK
+  // LIKE a role, not merely fail to look like a headline. Same source of truth as the rest of
+  // the pipeline, so a role family Discover admits is a role family this can name.
+  if (!isRoleText(t)) return false;
   if (t.split(/\s+/).length > 8) return false;
   if (/[!?…]|\.\.\./.test(t)) return false;
   if (/[$₹€£]|\b(\d+(\.\d+)?\s*(m|k|cr|lakh|crore|mn)|seed|series [a-e]|funding|raised|stealth)\b/i.test(t)) {
@@ -377,7 +424,12 @@ export function isPitchDraft(model: string): boolean {
 // v4, 2026-08-20: the employer slot no longer accepts the poster's name, and the role slot no
 // longer accepts a "We're hiring:" announcement. Every untouched v3 draft in the queue was
 // written with one or both, so they MUST be re-rendered rather than sent.
-export const JOB_TEMPLATE_VERSION = 'v4';
+//
+// v5, 2026-08-21: the role slot no longer takes the head of the title on faith. A real v4 send
+// opened "your post about At District roles at District" — the row's title was the post's first
+// line, "At District, …", and the head of it is a context clause, not a role. Any v4 draft whose
+// title opens that way is holding the same sentence right now, so they are re-rendered.
+export const JOB_TEMPLATE_VERSION = 'v5';
 
 export function isCurrentJobTemplate(model: string): boolean {
   return (
