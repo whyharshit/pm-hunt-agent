@@ -1,5 +1,5 @@
 import { renderFollowUp } from './followup-template';
-import { hasBounceFor, hasReplyFrom, findSentMessageId, imapConfigured, withImap } from './imap';
+import { findReply, hasBounceFor, findSentMessageId, imapConfigured, withImap } from './imap';
 import { unboundedClock, type InvocationClock } from './invocation-clock';
 import { sendOutreachMail } from './mailer';
 import { firstName } from './outreach-template';
@@ -8,10 +8,11 @@ import {
   closeSequence,
   duplicateRecipientSequences,
   dueAfter,
+  firstSentAt,
   greetedIn,
   lastMessageId,
-  lastSentAt,
   recordFollowUpSend,
+  threadMessageIds,
 } from './sequence';
 import {
   getDueSequences,
@@ -219,11 +220,28 @@ export async function runFollowUps(
       for (const seq of due) {
         if (staleIds.has(seq.id)) continue;
         if (seq.state !== 'active') continue;
-        const since = lastSentAt(seq);
+        // ⚠️ THE WINDOW OPENS AT THE FIRST SEND, not the last. See `firstSentAt`: a window
+        // that moves with our own messages cannot see a reply an earlier run missed, so the
+        // miss compounds into the next two follow-ups instead of being corrected.
+        const since = firstSentAt(seq);
 
         try {
-          if (await hasReplyFrom(client, seq.to, since)) {
-            if (!dryRun) await closeSequence(seq, 'replied', `reply from ${seq.to}`);
+          // `findReply`, not "mail from seq.to": the address we write to is frequently a
+          // shared inbox, and a shared inbox never replies — a person behind it does, from
+          // their own address. That is precisely how a reminder went to a recruiter who had
+          // already sent back an assignment with a deadline (2026-08-21).
+          const reply = await findReply(client, {
+            to: seq.to,
+            messageIds: threadMessageIds(seq),
+            since,
+          });
+          if (reply) {
+            // The address is recorded because it is usually NOT `seq.to`, and "reply from
+            // aayush.j@rovia.one (colleague)" is the line that explains why a sequence to
+            // careers@rovia.one stopped.
+            if (!dryRun) {
+              await closeSequence(seq, 'replied', `reply from ${reply.from} (${reply.how})`);
+            }
             result.stopped.push({ company: seq.company, to: seq.to, reason: 'replied' });
             continue;
           }

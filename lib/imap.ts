@@ -1,4 +1,4 @@
-import { ImapFlow } from 'imapflow';
+import { ImapFlow, type SearchObject } from 'imapflow';
 
 /**
  * Read the user's own Gmail, for one purpose: knowing whether a founder already answered.
@@ -84,6 +84,12 @@ export async function withImap<T>(fn: (client: ImapFlow) => Promise<T>): Promise
 /**
  * Did anything arrive from this address since we last wrote to them?
  *
+ * ⚠️ ONE SIGNAL OF THREE, AND NOT THE ONE THE FOLLOW-UP PASS ASKS ANY MORE. `findReply` below
+ * is what decides whether somebody answered; this stays exported because it is the primitive
+ * the IMAP smoke test uses to prove a search works at all. Answering "did they reply" with
+ * this alone is what mailed a reminder to a recruiter who had already written back — he
+ * replied from his own address, not from the shared inbox the application went to.
+ *
  * IMAP's SINCE is date-granular and ignores the time of day, so this is slightly
  * over-inclusive: mail that arrived earlier on the same day as our send also matches. That
  * error runs in the safe direction. A false "they replied" costs one unsent follow-up; a
@@ -100,6 +106,157 @@ export async function hasReplyFrom(
   try {
     const hits = await client.search({ from: address, since }, { uid: true });
     return Array.isArray(hits) && hits.length > 0;
+  } finally {
+    lock.release();
+  }
+}
+
+/**
+ * Consumer mail hosts. On one of these, "somebody else at the same domain" means nothing at
+ * all — it means another of the world's gmail users — so the colleague rule below must never
+ * fire for them. Everything else is treated as an employer's own domain.
+ */
+const CONSUMER_MAIL_DOMAINS = new Set([
+  'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com', 'msn.com',
+  'yahoo.com', 'yahoo.co.in', 'ymail.com', 'rediffmail.com', 'proton.me', 'protonmail.com',
+  'icloud.com', 'me.com', 'aol.com', 'zoho.com', 'zohomail.com', 'mail.com', 'gmx.com',
+]);
+
+/** Role inboxes a whole team reads, so a reply legitimately arrives from a person instead. */
+const SHARED_INBOX_RE =
+  /^(careers?|jobs?|hiring|recruit(ing|ment)?|hr|talent|internships?|apply|applications?|resume|cv|joinus|work(with|for)us|info|hello|contact|team|people|admin|office|reach|connect|support)@/i;
+
+/**
+ * The domain at which a colleague's reply counts as THIS sequence's reply, or null.
+ *
+ * ⚠️ THE BUG THIS ANSWERS, reported 2026-08-21 off a real thread. An application went to
+ * `careers@rovia.one` — a Google Group — and Aayush Jain answered from `aayush.j@rovia.one`
+ * with a two-question assignment and a deadline. The reply check searched for mail FROM
+ * `careers@rovia.one`, found none, and seven hours later the pass sent "Just following up on
+ * my note below, in case it got buried". **A SHARED INBOX NEVER REPLIES; A PERSON BEHIND IT
+ * DOES.**
+ *
+ * Gated twice, because a domain match is a blunt instrument: only for an address that is
+ * plainly a role inbox, and never on a consumer mail host, where the domain says nothing
+ * about who is on the other end.
+ */
+export function colleagueDomainFor(address: string): string | null {
+  const [local, domain] = address.toLowerCase().split('@');
+  if (!local || !domain) return null;
+  if (!SHARED_INBOX_RE.test(address)) return null;
+  if (CONSUMER_MAIL_DOMAINS.has(domain)) return null;
+  return domain;
+}
+
+function selfAddress(): string {
+  return (process.env.GMAIL_USER ?? '').toLowerCase();
+}
+
+/** Newest hits only, and only a handful: this is a yes/no question, not an inbox reader. */
+const MAX_HITS_EXAMINED = 5;
+
+/**
+ * The newest message matching this search that is not one of OUR OWN, and who sent it.
+ *
+ * ⚠️ THE SELF-CHECK IS LOAD-BEARING. A mailing list echoes our own message back into the
+ * INBOX carrying the very References header the thread search looks for — the Rovia thread
+ * arrived with a Google Groups footer, so this is not hypothetical. Without it, a send to a
+ * group would read as an instant reply from ourselves and close the sequence on the next run.
+ */
+async function senderOfNewestForeignMatch(
+  client: ImapFlow,
+  query: SearchObject
+): Promise<string | null> {
+  const hits = await client.search(query, { uid: true });
+  if (!Array.isArray(hits) || hits.length === 0) return null;
+  const self = selfAddress();
+  for (const uid of hits.slice(-MAX_HITS_EXAMINED).reverse()) {
+    const msg = await client.fetchOne(String(uid), { envelope: true }, { uid: true });
+    const from = (msg && msg.envelope?.from?.[0]?.address?.toLowerCase()) || '';
+    if (from && from !== self) return from;
+  }
+  return null;
+}
+
+export type ReplyProbe = {
+  /** The one address this sequence writes to. */
+  to: string;
+  /**
+   * Every Message-ID this sequence has sent, so a reply can be recognised by the thread it
+   * hangs from rather than by who happened to send it.
+   */
+  messageIds: string[];
+  /**
+   * How far back to look. ⚠️ THE SEQUENCE'S FIRST SEND, NOT ITS LAST. A window that restarts
+   * on every send makes a reply the pass failed to notice invisible for ever, so one missed
+   * reply becomes three unwanted follow-ups instead of being corrected on the next run.
+   */
+  since: Date;
+};
+
+export type ReplyHit = {
+  from: string;
+  /** How it was recognised: the thread, the address we wrote to, or a colleague of it. */
+  how: 'thread' | 'address' | 'colleague';
+};
+
+/**
+ * Has anyone answered this sequence?
+ *
+ * Three signals, most precise first. Any one of them stops the sequence, because the two
+ * possible errors are nothing like equal: a false "they replied" costs one unsent follow-up,
+ * and a false "they did not" mails a reminder to somebody who has already written back.
+ *
+ *  1. THREAD. A reply carries one of our Message-IDs in `In-Reply-To` or `References`,
+ *     whoever sends it and from whatever address. This is what "replied" actually means, and
+ *     it is the signal the old check did not have.
+ *  2. ADDRESS. Mail from the address we wrote to — the original check, kept.
+ *  3. COLLEAGUE. Mail from the same company domain when we wrote to a role inbox. See
+ *     `colleagueDomainFor` for the two gates on it.
+ *
+ * IMAP's SINCE is date-granular and ignores the time of day, so all three are slightly
+ * over-inclusive: mail from earlier on the same day as the send also matches. That error runs
+ * in the safe direction.
+ */
+export async function findReply(client: ImapFlow, probe: ReplyProbe): Promise<ReplyHit | null> {
+  // readOnly opens the mailbox with EXAMINE rather than SELECT, so the server itself refuses
+  // any state change. ONE lock for all three searches: this runs per sequence, and re-locking
+  // per search would spend the pass's budget on round trips.
+  const lock = await client.getMailboxLock('INBOX', { readOnly: true });
+  try {
+    const ids = probe.messageIds.filter(Boolean);
+    if (ids.length > 0) {
+      // Both headers, because they are different headers: a client that sets only In-Reply-To
+      // is unusual, but a list that rewrites one and not the other is not. `or` wants two
+      // branches minimum, which a single id already provides.
+      const threaded = await senderOfNewestForeignMatch(client, {
+        since: probe.since,
+        or: ids.flatMap((id): SearchObject[] => [
+          { header: { 'in-reply-to': id } },
+          { header: { references: id } },
+        ]),
+      });
+      if (threaded) return { from: threaded, how: 'thread' };
+    }
+
+    const direct = await senderOfNewestForeignMatch(client, {
+      since: probe.since,
+      from: probe.to,
+    });
+    if (direct) return { from: direct, how: 'address' };
+
+    const domain = colleagueDomainFor(probe.to);
+    if (domain) {
+      // IMAP FROM is a substring match on the header, so "@rovia.one" matches any sender at
+      // that domain.
+      const colleague = await senderOfNewestForeignMatch(client, {
+        since: probe.since,
+        from: `@${domain}`,
+      });
+      if (colleague) return { from: colleague, how: 'colleague' };
+    }
+
+    return null;
   } finally {
     lock.release();
   }

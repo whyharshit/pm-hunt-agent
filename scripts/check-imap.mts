@@ -11,6 +11,8 @@
  * connection alone.
  */
 import {
+  colleagueDomainFor,
+  findReply,
   findSentMessageId,
   hasBounceFor,
   hasReplyFrom,
@@ -41,12 +43,27 @@ try {
 
     if (probe) {
       console.log(`\nsearching the last 30 days for ${probe}:`);
-      console.log('  reply from them:', await hasReplyFrom(client, probe, since));
+      // The address-only search, which is what the follow-up pass used to ask. Kept visible on
+      // purpose: on a shared inbox it answers `false` while a person behind that inbox has
+      // already replied, and seeing the two answers side by side is the whole lesson.
+      console.log('  [address only] reply from them:', await hasReplyFrom(client, probe, since));
       console.log('  bounce for them:', await hasBounceFor(client, probe, since));
+
+      const rootId = await findSentMessageId(client, probe, new Date());
+      console.log('  our last Message-ID to them:', rootId ?? 'none found today');
       console.log(
-        '  our last Message-ID to them:',
-        (await findSentMessageId(client, probe, new Date())) ?? 'none found today'
+        '  colleague rule:',
+        colleagueDomainFor(probe) ? `any sender @${colleagueDomainFor(probe)} counts` : 'not applied'
       );
+
+      // What `runFollowUps` actually asks. A hit here with `how` other than 'address' is a
+      // reply the old check could not see.
+      const hit = await findReply(client, {
+        to: probe,
+        messageIds: rootId ? [rootId] : [],
+        since,
+      });
+      console.log('  [findReply] replied:', hit ? `${hit.from} (${hit.how})` : 'no');
     }
   });
   console.log('\nIMAP OK ✅ — follow-ups can tell who replied.');

@@ -173,10 +173,39 @@ export function lastMessageId(seq: OutreachSequence): string | undefined {
   return undefined;
 }
 
-/** When we last wrote to them. The window a reply check searches. */
+/** When we last wrote to them. */
 export function lastSentAt(seq: OutreachSequence): Date {
   const last = seq.sends[seq.sends.length - 1];
   return new Date(last?.at ?? seq.nextDueAt ?? Date.now());
+}
+
+/**
+ * When this conversation STARTED, and therefore how far back a reply check must look.
+ *
+ * ⚠️ NOT `lastSentAt`, which is what the reply window used until 2026-08-21. A window that
+ * restarts on every send can only ever see replies newer than our own last message, so a reply
+ * the pass failed to notice — for any reason: a search that did not match, an invocation that
+ * was killed, an IMAP outage — is invisible from then on. One missed reply became three
+ * unwanted follow-ups. Widening it costs nothing: a reply at ANY point after we first wrote is
+ * a reply, and the search is bounded by the sequence, not by the mailbox.
+ */
+export function firstSentAt(seq: OutreachSequence): Date {
+  const first = seq.sends[0];
+  return new Date(first?.at ?? lastSentAt(seq));
+}
+
+/**
+ * Every Message-ID this sequence has put on the wire, oldest first.
+ *
+ * A reply threads to ONE of them and there is no telling which — somebody answering the third
+ * bump replies to that, somebody coming back to the original replies to the root — so the
+ * thread search asks about all of them.
+ */
+export function threadMessageIds(seq: OutreachSequence): string[] {
+  const ids = [seq.rootMessageId, ...seq.sends.map((s) => s.messageId)].filter(
+    (id): id is string => Boolean(id && id.trim())
+  );
+  return [...new Set(ids)];
 }
 
 
