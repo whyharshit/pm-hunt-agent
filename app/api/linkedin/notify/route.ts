@@ -81,6 +81,26 @@ export async function POST(request: Request) {
   // name — "LinkedIn Kajol accepted your invitation" reads as somebody called "LinkedIn Kajol".
   const candidates = [text, `${title} ${text}`.trim(), title].filter(Boolean);
 
+  // ⚠️ THE COMMONEST SETUP MISTAKE, ANSWERED IN THE RESPONSE ITSELF. MacroDroid substitutes
+  // magic text written in SQUARE brackets — `[not_title]`, `[notification]` — and its picker
+  // button is drawn with curly braces, so `{not_title}` gets typed and sent as those literal
+  // characters. That produced a cheerful 200 saying "not an acceptance", which is true and
+  // useless. Now the phone is told exactly what is wrong, on the phone, where the person
+  // debugging it is standing.
+  const unsubstituted = /[{[]\s*(not_title|notification|not_text|notification_title|notification_text)\s*[}\]]/i;
+  const combined = `${title} ${text}`;
+  if (unsubstituted.test(combined)) {
+    return Response.json(
+      {
+        ok: false,
+        error: 'magic text was sent literally, so the notification never reached us',
+        got: combined.trim().slice(0, 120),
+        fix: 'MacroDroid needs SQUARE brackets: [not_title] [notification]. Its picker button is drawn with curly braces, but the syntax is square.',
+      },
+      { status: 400 }
+    );
+  }
+
   // ⚠️ LOGGED, BECAUSE THE CLIENT CANNOT BE DEBUGGED FROM HERE. The caller is a macro on a
   // phone; when it misfires, the only evidence is whatever MacroDroid chose to show on a 4-inch
   // screen. `vercel logs` can read this line, so "did the magic text resolve?" and "what did the
