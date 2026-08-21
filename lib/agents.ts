@@ -1,3 +1,5 @@
+import type { AgentRun } from './types';
+
 export type AgentKind = 'cron' | 'webhook' | 'pipeline';
 
 export type AgentMeta = {
@@ -88,3 +90,37 @@ export const AGENTS: AgentMeta[] = [
 ];
 
 export const LIVE_AGENT_IDS = AGENTS.filter((a) => a.status === 'live').map((a) => a.id);
+
+/**
+ * How long a card may claim to be running before it is not believable.
+ *
+ * ⚠️ A DEAD RUN AND A LIVE ONE USED TO LOOK IDENTICAL, PERMANENTLY. `setAgentRunning` writes
+ * `state: 'running'` with no TTL and the matching `recordAgentRun` is the LAST statement in
+ * every pass — so a pass the platform kills at its `maxDuration` never records anything, and
+ * the card pulses amber for ever. That is the same class of failure as "the cron mailed nobody
+ * for four days while reporting ok: true": the dashboard showed a state that could not be
+ * distinguished from a healthy one.
+ *
+ * The ceiling is the longest invocation in the project (`/api/funding`, 300s) plus grace for
+ * the gap between the function's clock and the page render's. Past that, no live function is
+ * still holding the key, so the run is reported as dead rather than as running. Deliberately
+ * generous: calling a live run dead is the worse error of the two, and the next successful run
+ * overwrites the record anyway.
+ */
+const MAX_INVOCATION_MS = 300_000;
+const SKEW_GRACE_MS = 120_000;
+export const RUN_DEAD_AFTER_MS = MAX_INVOCATION_MS + SKEW_GRACE_MS;
+
+/** `dead`: the record says running, but nothing can still be running it. */
+export type RunDisplayState = AgentRun['state'] | 'dead';
+
+export function runDisplayState(run: AgentRun | undefined, now = Date.now()): RunDisplayState {
+  if (!run) return 'idle';
+  if (run.state !== 'running') return run.state;
+  const startedAt = run.startedAt ? Date.parse(run.startedAt) : NaN;
+  // A running record with no usable start time cannot be aged, and every writer stamps one —
+  // so this is a legacy or hand-written record, and "cannot confirm it is alive" is closer to
+  // the truth than a pulsing dot.
+  if (Number.isNaN(startedAt)) return 'dead';
+  return now - startedAt > RUN_DEAD_AFTER_MS ? 'dead' : 'running';
+}

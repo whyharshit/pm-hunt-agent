@@ -1,13 +1,16 @@
-import { AGENTS, type AgentMeta } from '@/lib/agents';
+import { AGENTS, runDisplayState, type AgentMeta, type RunDisplayState } from '@/lib/agents';
 import { runAgent } from '@/lib/actions';
 import { fmtDate } from '@/lib/format';
 import type { AgentRun } from '@/lib/types';
 
-const DOT: Record<AgentRun['state'], string> = {
+const DOT: Record<RunDisplayState, string> = {
   idle: 'bg-zinc-400 dark:bg-zinc-600',
   running: 'bg-amber-500 animate-pulse',
   ok: 'bg-green-500',
   error: 'bg-red-500',
+  // NOT pulsing, and not the same colour as a live run. The whole point is that this state
+  // used to be indistinguishable from `running`.
+  dead: 'bg-red-600 ring-2 ring-red-200 dark:ring-red-900',
 };
 
 const KIND_LABEL: Record<AgentMeta['kind'], string> = {
@@ -18,7 +21,10 @@ const KIND_LABEL: Record<AgentMeta['kind'], string> = {
 
 function AgentCard({ agent, run }: { agent: AgentMeta; run?: AgentRun }) {
   const planned = agent.status === 'planned';
-  const state: AgentRun['state'] = planned ? 'idle' : run?.state ?? 'idle';
+  // ⚠️ `runDisplayState`, never `run.state`. A pass killed at its maxDuration leaves the
+  // record saying `running` for ever, because the statement that would correct it is the one
+  // that never ran. See lib/agents.ts.
+  const state: RunDisplayState = planned ? 'idle' : runDisplayState(run);
 
   return (
     <li
@@ -44,12 +50,21 @@ function AgentCard({ agent, run }: { agent: AgentMeta; run?: AgentRun }) {
 
       {!planned && (
         <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-          {run?.summary ? (
+          {state === 'dead' ? (
+            <span className="text-red-600 dark:text-red-400">
+              ⚠ cut off mid-run — no result was ever recorded
+              {run?.startedAt ? `, started ${fmtDate(run.startedAt)}` : ''}
+            </span>
+          ) : run?.summary ? (
             <span className="text-zinc-700 dark:text-zinc-300">{run.summary}</span>
+          ) : state === 'running' ? (
+            <span className="text-amber-700 dark:text-amber-500">
+              in flight{run?.startedAt ? ` — started ${fmtDate(run.startedAt)}` : ''}
+            </span>
           ) : (
             <span className="text-zinc-400 dark:text-zinc-500 italic">no run yet</span>
           )}
-          {run?.finishedAt && (
+          {run?.finishedAt && state !== 'dead' && (
             <span className="text-zinc-400 dark:text-zinc-500 tabular-nums">{fmtDate(run.finishedAt)}</span>
           )}
           {run?.error && (
