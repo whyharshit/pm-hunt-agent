@@ -81,6 +81,16 @@ export async function POST(request: Request) {
   // name — "LinkedIn Kajol accepted your invitation" reads as somebody called "LinkedIn Kajol".
   const candidates = [text, `${title} ${text}`.trim(), title].filter(Boolean);
 
+  // ⚠️ LOGGED, BECAUSE THE CLIENT CANNOT BE DEBUGGED FROM HERE. The caller is a macro on a
+  // phone; when it misfires, the only evidence is whatever MacroDroid chose to show on a 4-inch
+  // screen. `vercel logs` can read this line, so "did the magic text resolve?" and "what did the
+  // parser make of it?" are answerable without asking the person holding the phone to read a
+  // JSON response back. The name is the user's own data in the user's own log.
+  console.log(
+    `[linkedin/notify] title=${JSON.stringify(title)} text=${JSON.stringify(text)} ` +
+      `kinds=${candidates.map((c) => classifyLinkedInText(c).kind).join(',')}`
+  );
+
   // ⚠️ `?dry=true` EXISTS BECAUSE THE SETUP IS TESTED BY A HUMAN ON A PHONE. MacroDroid's own
   // "Test actions" button fires the real request, so without this every rehearsal writes a row
   // that then has to be deleted by hand — which is exactly what happened while this endpoint was
