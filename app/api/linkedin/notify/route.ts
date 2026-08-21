@@ -41,12 +41,31 @@ export async function POST(request: Request) {
     return Response.json({ ok: false, error: 'unauthorized' }, { status: 401 });
   }
 
-  let body: Body;
-  try {
-    body = (await request.json()) as Body;
-  } catch {
-    return Response.json({ ok: false, error: 'bad json' }, { status: 400 });
+  // ⚠️ THREE SHAPES ACCEPTED, ON PURPOSE. The client here is a macro on a phone, built by hand
+  // in a GUI, and the commonest way that setup fails is a quoting detail: a notification
+  // containing an apostrophe breaks hand-written JSON, and MacroDroid does no escaping. So JSON,
+  // form-encoding and plain query parameters all work, and a body that fails to parse falls back
+  // to the query string rather than 400-ing at somebody holding a phone.
+  const url = new URL(request.url);
+  const raw = await request.text();
+  const body: Body = {};
+  const type = request.headers.get('content-type') ?? '';
+  if (raw && type.includes('json')) {
+    try {
+      Object.assign(body, JSON.parse(raw) as Body);
+    } catch {
+      // fall through to the query string
+    }
+  } else if (raw && type.includes('form-urlencoded')) {
+    const form = new URLSearchParams(raw);
+    body.title = form.get('title') ?? undefined;
+    body.text = form.get('text') ?? undefined;
+  } else if (raw) {
+    // A plain-text body is the whole notification.
+    body.text = raw;
   }
+  body.title ??= url.searchParams.get('title') ?? undefined;
+  body.text ??= url.searchParams.get('text') ?? undefined;
 
   const title = typeof body.title === 'string' ? body.title.slice(0, MAX_TEXT) : '';
   const text = typeof body.text === 'string' ? body.text.slice(0, MAX_TEXT) : '';
