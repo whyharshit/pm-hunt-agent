@@ -24,7 +24,11 @@ export const AGENTS: AgentMeta[] = [
     name: 'Discover',
     description: "Pulls intern roles (product/ops/data/VC/AI/SWE) from RemoteOK + We Work Remotely + HN Who's Hiring + Internshala + Unstop + YC + LinkedIn (guest job search, Serper, and Apify post search), filters them, and saves new matches. Remote everywhere, plus on-site product roles in India.",
     kind: 'cron',
-    cadence: 'daily 09:00 UTC',
+    // ⚠️ READ OFF vercel.json, NOT CHOSEN HERE. These cards said 09:00 and 09:30 UTC while the
+    // crons fired at 03:00 and 03:47 UTC — six hours out, for as long as anyone had been
+    // reading the dashboard to work out whether a run had happened yet. IST because that is
+    // the clock the schedule was tuned against (see the 09:17 note in lib/pace.ts).
+    cadence: 'daily 08:30 IST',
     status: 'live',
     runnable: true,
   },
@@ -58,7 +62,10 @@ export const AGENTS: AgentMeta[] = [
     name: 'Funding Tracker',
     description: 'Watch newly funded startups (TechCrunch) and draft per-company cold outreach.',
     kind: 'cron',
-    cadence: 'daily 09:30 UTC',
+    // Same invocation as the job-mailer card below, hence the same time: Hobby allows two
+    // crons and both are taken, so job outreach rides this one. If these two ever disagree,
+    // one of them is lying.
+    cadence: 'daily 09:17 IST',
     status: 'live',
     runnable: true,
   },
