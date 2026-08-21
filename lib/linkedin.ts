@@ -43,6 +43,29 @@ const MIN_SCAN_MS = 10_000;
 /** Envelopes read per run. A month of LinkedIn mail is well inside this. */
 const MAX_MESSAGES = 300;
 
+/**
+ * ⚠️ ALL MAIL, NOT INBOX, and it is not a detail.
+ *
+ * These notifications arrive by a Gmail FILTER forwarding them from another account
+ * (shvnsharya@gmail.com, set up 2026-08-21). A filter at either end can archive, label or
+ * skip-inbox the message, and a forward that skips the inbox is invisible to an INBOX search —
+ * the tracker would report "no LinkedIn mail" while the mail sat in All Mail the whole time.
+ * All Mail is every message the account holds bar Spam and Trash, so it cannot be dodged by
+ * labelling. Our own Sent copies live there too and are excluded by the sender gate, which
+ * requires a real linkedin.com From.
+ */
+const SCAN_MAILBOX = '[Gmail]/All Mail';
+
+/**
+ * Spam is COUNTED, never parsed.
+ *
+ * Gmail spam-files forwarded mail more readily than mail sent to the account directly, and a
+ * spam-filed acceptance is exactly as invisible as one that never arrived. But From headers are
+ * forgeable and Spam is where forged mail lands, so a row is never created from it — the count
+ * goes in the summary ("3 in Spam — mark them Not spam") and a human decides.
+ */
+const SPAM_MAILBOX = '[Gmail]/Spam';
+
 export type LinkedInScanResult = {
   /** Messages from LinkedIn examined. */
   scanned: number;
@@ -54,6 +77,11 @@ export type LinkedInScanResult = {
   invitesReceived: number;
   /** Acceptances tied to a discovered job row by name. */
   linkedToJobs: number;
+  /**
+   * LinkedIn mail sitting in Spam, counted and deliberately not parsed. Non-zero means the
+   * forward is working and Gmail is filing it where nothing will look.
+   */
+  inSpam: number;
   windowDays: number;
   dryRun: boolean;
   /** Set when IMAP is not configured or the mailbox could not be read. */
@@ -69,6 +97,7 @@ function emptyResult(dryRun: boolean): LinkedInScanResult {
     newlyAccepted: [],
     invitesReceived: 0,
     linkedToJobs: 0,
+    inSpam: 0,
     windowDays: WINDOW_DAYS,
     dryRun,
     imapError: null,
@@ -174,11 +203,25 @@ export async function runLinkedInScan(
     };
 
     await withImap(async (client) => {
-      const lock = await client.getMailboxLock('INBOX', { readOnly: true });
+      // Counted first and separately, so the answer survives whatever the main pass finds.
+      // A missing Spam folder is not an error worth failing the pass over.
+      try {
+        const spamLock = await client.getMailboxLock(SPAM_MAILBOX, { readOnly: true });
+        try {
+          const spam = await client.search({ from: 'linkedin.com', since }, { uid: true });
+          result.inSpam = Array.isArray(spam) ? spam.length : 0;
+        } finally {
+          spamLock.release();
+        }
+      } catch {
+        result.inSpam = 0;
+      }
+
+      const lock = await client.getMailboxLock(SCAN_MAILBOX, { readOnly: true });
       try {
         // Sender-scoped: `from` is a substring match on the header, and every LinkedIn domain
-        // ends in linkedin.com. Gmail forwarding preserves the original From, so this holds for
-        // notifications forwarded from another account.
+        // ends in linkedin.com. A Gmail filter's forward preserves the original From, so this
+        // holds for notifications forwarded in from another account.
         const hits = await client.search({ from: 'linkedin.com', since }, { uid: true });
         const uids = (Array.isArray(hits) ? hits : []).slice(-MAX_MESSAGES);
         if (uids.length === 0) return;
@@ -225,13 +268,17 @@ export async function runLinkedInScan(
         state: 'ok',
         summary:
           result.scanned === 0
-            ? `no LinkedIn mail in the last ${WINDOW_DAYS} days — notifications are not reaching this mailbox yet`
-            : `${result.scanned} LinkedIn mails · ${result.accepted} acceptances (${result.newlyAccepted.length} new) · ${result.linkedToJobs} tied to a job row`,
+            ? result.inSpam > 0
+              ? `0 LinkedIn mails in All Mail but ${result.inSpam} in SPAM — the forward works, Gmail is filing it as junk. Mark them "Not spam" and they will be read next run.`
+              : `no LinkedIn mail in the last ${WINDOW_DAYS} days — the forward has not delivered anything yet`
+            : `${result.scanned} LinkedIn mails · ${result.accepted} acceptances (${result.newlyAccepted.length} new) · ${result.linkedToJobs} tied to a job row` +
+              (result.inSpam > 0 ? ` · ⚠ ${result.inSpam} more in Spam, not read` : ''),
         stats: {
           scanned: result.scanned,
           accepted: result.accepted,
           newlyAccepted: result.newlyAccepted.length,
           invitesReceived: result.invitesReceived,
+          inSpam: result.inSpam,
         },
         error: null,
       });
