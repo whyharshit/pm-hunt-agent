@@ -128,9 +128,10 @@ export function MarkAcceptedButton({
 /**
  * Import LinkedIn's connections export.
  *
- * ⚠️ THE ONE INPUT THAT WORKS. Two real acceptances produced no email at all — LinkedIn sent
- * phone notifications and nothing else — so this, not the mailbox, is how the tracker learns
- * who connected. The file is the user's own data, downloaded from LinkedIn; nothing is scraped.
+ * ⚠️ THE ONLY COMPLETE INPUT. LinkedIn emails some acceptances and not others — two of three
+ * recent ones produced phone notifications and nothing else — so the mailbox can only ever be a
+ * partial signal, and a partial signal under-reports silently. The file is the user's own data,
+ * downloaded from LinkedIn; nothing is scraped.
  */
 export function ImportConnectionsForm() {
   const [state, formAction, pending] = useActionState(importLinkedInCsv, initial);
@@ -141,8 +142,9 @@ export function ImportConnectionsForm() {
         Import your connections from LinkedIn
       </p>
       <p className="mt-1 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
-        LinkedIn only emails &quot;X accepted your invitation&quot; if you have turned that email
-        on, and it did not for your last two acceptances — so the reliable source is the export.
+        LinkedIn emails &quot;X accepted your invitation&quot; for some acceptances and not
+        others — one of your last three arrived by mail, two did not — so the export is the only
+        complete source.
         On LinkedIn: <span className="font-medium">Settings &amp; Privacy → Data privacy → Get a
         copy of your data → Connections → Request archive</span>. It arrives by email in a few
         minutes; upload the <code>Connections.csv</code> here. Re-import any time — rows update

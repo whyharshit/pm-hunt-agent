@@ -62,6 +62,20 @@ check(
 
 console.log('\n--- the acceptance phrasings LinkedIn actually uses ---');
 const ACCEPTED: Array<[string, string]> = [
+  // ⚠️ THE REAL ONE. Received by the user on 2026-08-20 and reported on the 22nd — the first
+  // actual LinkedIn acceptance subject this project has ever been able to test against. Every
+  // other line in this list was written from memory of LinkedIn's phrasings; this one is
+  // evidence, so it must never stop parsing.
+  ['Kajol accepted your invitation, explore their network', 'Kajol'],
+  ['Kajol Sharma accepted your invitation, explore their network', 'Kajol Sharma'],
+  // ⚠️ AND THE HEADLINE CASE THAT WAS SILENTLY BROKEN. LinkedIn appends the person's headline,
+  // and people put "Hiring!" in theirs — which the digest reject list (it matches /hiring/)
+  // threw away, discarding a real acceptance. Acceptances are matched BEFORE the rejects now.
+  [
+    'Kajol Sharma (Hiring! Product Interns) accepted your invitation, explore their network',
+    'Kajol Sharma',
+  ],
+  ['Aayush Jain | Hiring accepted your invitation', 'Aayush Jain'],
   ['Aayush Jain accepted your invitation to connect', 'Aayush Jain'],
   ['Aayush Jain has accepted your invitation. Let’s start a conversation', 'Aayush Jain'],
   ['Congrats, you and Aayush Jain are now connected!', 'Aayush Jain'],
@@ -126,6 +140,27 @@ check(
     (s) => parse(s).kind !== 'accepted'
   )
 );
+
+console.log('\n--- ⚠️ a subject that names NOBODY must not invent a person ---');
+// Both of these were live bugs, found on 2026-08-22 the moment a real subject line was
+// available to test against: the first produced a connection with a person called "See who",
+// the second one called "3 others". The guard that stops them was itself disabled by an
+// invisible BACKSPACE byte sitting where a word boundary should have been — the regex printed
+// correctly, tsc and eslint were happy, and it silently matched nothing. See
+// scripts/check-source-hygiene.mts, which now scans every source file for that class of damage.
+for (const [subject, why] of [
+  ['See who accepted your invitation', 'a nudge with no name in it'],
+  ['You and 3 others are now connected', 'a digest counting people'],
+  ['Someone accepted your invitation', 'a pronoun is not a person'],
+  ['New connections this week', 'a weekly summary'],
+] as const) {
+  const got = parse(subject);
+  check(
+    `"${subject}" is not a connection (${why})`,
+    got.kind !== 'accepted',
+    `${got.kind} ${got.name ?? ''}`
+  );
+}
 
 console.log('\n--- a nameless match is no match ---');
 // ⚠️ A connection with nobody's name in it cannot be shown, matched or deduplicated — it would

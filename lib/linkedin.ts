@@ -20,10 +20,11 @@ import type { Job, LinkedInInvite } from './types';
 /**
  * The LinkedIn tracker's one automatic input: LinkedIn's own notification mail.
  *
- * ⚠️ READ lib/linkedin-mail.ts FIRST. There is no API for invitations, the mailbox is the only
- * signal, and as of 2026-08-21 no LinkedIn mail reaches this account at all — so this pass is
- * built, pinned, and finds nothing until the notifications are forwarded here. It is written to
- * behave identically on the day they arrive: nothing to configure, nothing to migrate.
+ * ⚠️ READ lib/linkedin-mail.ts FIRST, AND KNOW THAT THIS SIGNAL IS PARTIAL. LinkedIn emails
+ * some acceptances and not others — measured on three real ones, 20-22 Aug 2026: one arrived,
+ * two produced phone notifications and nothing else. This pass is worth running because it is
+ * free and same-day, but the COMPLETE record comes from the connections export
+ * (lib/linkedin-csv.ts). Never present what this finds as the whole picture.
  *
  * The pass is IDEMPOTENT AND SELF-HEALING, which is why it can afford to be the lowest-priority
  * thing in the invocation. It re-reads a 30-day window every run rather than tracking "where I

@@ -1,16 +1,17 @@
 /**
  * LinkedIn's own connections export — the tracker's authoritative input.
  *
- * ⚠️ WHY THIS EXISTS AND THE EMAIL PATH DOES NOT CARRY THE FEATURE. Measured 2026-08-21/22 on
- * two real acceptances: the user sent two invitations, both friends accepted, and **no email
- * was ever sent** — only push notifications to the phone, which leave no trace anything can
- * read. The mailbox was searched over three days across All Mail and Spam by sender, by subject
- * and by body: nothing. LinkedIn only emails "X accepted your invitation" when the EMAIL
- * channel is switched on for that notification category, and for anyone using the mobile app it
- * is off by default. A forward cannot forward mail that was never sent.
+ * ⚠️ WHY THE EMAIL PATH CANNOT CARRY THE FEATURE ON ITS OWN: **LINKEDIN EMAILS SOME
+ * ACCEPTANCES AND NOT OTHERS.** Measured on three real ones, 2026-08-20 to 22. Two friends
+ * accepted and produced nothing at all — only push notifications, which leave no trace anything
+ * can read; the mailbox was searched across three days, All Mail and Spam, by sender, subject
+ * and body. A third, "Kajol accepted your invitation, explore their network", did arrive. So the
+ * mail is a REAL but PARTIAL signal: whatever governs it (notification settings, LinkedIn's own
+ * throttling, how active the other person is) is not visible from here and not controllable.
  *
- * So `lib/linkedin-mail.ts` stays — it costs nothing, it is pinned, and it starts contributing
- * the day those emails are enabled — but the input that actually works today is
+ * A tracker built on a partial signal quietly under-reports, and under-reporting looks exactly
+ * like "nobody accepted". So `lib/linkedin-mail.ts` stays and is worth having — it is real-time
+ * and free — but the COMPLETE input is
  * **Settings → Data privacy → Get a copy of your data → Connections**, which LinkedIn delivers
  * as a CSV holding every connection with the date it was made. No scraping, no session cookie,
  * nothing against their terms: it is the user's own data, offered by LinkedIn for download.

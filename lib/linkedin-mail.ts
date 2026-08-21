@@ -8,11 +8,13 @@
  * The alternative is scraping with a session cookie, which is against LinkedIn's terms and
  * risks the account, and is deliberately not done here.
  *
- * ⚠️ AND IT IS NOT IN THIS MAILBOX YET. Measured 2026-08-21: 120 days of INBOX and All Mail
- * contain ZERO messages from linkedin.com, so LinkedIn mails a different address. This parser
- * is therefore built and pinned but idle until those notifications are forwarded here (the
- * user's choice, 2026-08-21). Nothing breaks in the meantime: the scan finds nothing and the
- * /linkedin page runs on hand-logged invitations.
+ * ⚠️ AND THE SIGNAL IS PARTIAL, WHICH IS THE MORE IMPORTANT FACT. LinkedIn emails some
+ * acceptances and not others: of three real ones on 20-22 Aug 2026, "Kajol accepted your
+ * invitation, explore their network" arrived, and two others produced phone notifications and
+ * no mail at all. Nothing visible from here decides which. So this parser catches what it can,
+ * same-day and for free, and lib/linkedin-csv.ts (LinkedIn's own connections export) is what
+ * makes the record complete. A tracker that showed only what this finds would under-report, and
+ * under-reporting reads exactly like "nobody accepted".
  *
  * WHAT MAKES THIS DANGEROUS, and it is the whole reason the matching is an ALLOWLIST. LinkedIn
  * sends far more "you might know this person" mail than "this person accepted", and the
@@ -115,11 +117,25 @@ const NOT_A_CONNECTION_PATTERNS: RegExp[] = [
   /\bverify your\b/i,
 ];
 
+/**
+ * Words a captured "name" can start with that prove it is not a person.
+ *
+ * ⚠️ WITHOUT THIS, "See who accepted your invitation" — a nudge LinkedIn sends with nobody in
+ * it — becomes a connection with a person called "See who", and "You and 3 others are now
+ * connected" becomes "3 others". Both were live bugs, caught 2026-08-22 when a real subject line
+ * was finally available to test against.
+ */
+const NOT_A_PERSON_RE =
+  /^(see|who|someone|somebody|people|they|your|our|new|more|others?|everyone|\d+)\b/i;
+
 /** Decoration LinkedIn puts around a name in a subject line. */
 function cleanName(raw: string): string {
   const name = raw
     // Emoji, stars and the trailing exclamation LinkedIn likes.
     .replace(/[\p{Extended_Pictographic}☀-➿]/gu, '')
+    // "Kajol Sharma (Hiring! Product Interns)" — LinkedIn appends the person's headline, and
+    // people put anything in theirs. The brackets and everything in them are not the name.
+    .replace(/\s*\([^)]*\)/g, '')
     .replace(/^[\s"'“”‘’]+|[\s"'“”‘’!.,;:]+$/g, '')
     // "Aayush Jain, Founder at Rovia" — the headline is not part of the name.
     .split(/\s+[-–—|,]\s+|,\s/)[0]
@@ -129,6 +145,7 @@ function cleanName(raw: string): string {
   if (name.length < 2 || name.length > 60) return '';
   // Must contain a letter. "12345" is not somebody's name.
   if (!/\p{L}/u.test(name)) return '';
+  if (NOT_A_PERSON_RE.test(name)) return '';
   return name;
 }
 
@@ -144,25 +161,33 @@ export function parseLinkedInNotification(msg: { from: string; subject: string }
   const subject = (msg.subject ?? '').replace(/\s+/g, ' ').trim();
   if (!subject) return { kind: 'other' };
 
-  // Rejects first. A suggestion digest can contain an acceptance-shaped clause, and the
-  // ordering is what stops it being read as one.
-  if (NOT_A_CONNECTION_PATTERNS.some((re) => re.test(subject))) return { kind: 'other' };
-
+  // An invitation TO us first: it shares the word "invitation" with an acceptance and is not
+  // something we did. None of these overlap the acceptance phrasings, but the order makes that
+  // a property of the code rather than of the regexes.
   for (const re of INVITE_RECEIVED_PATTERNS) {
     const m = re.exec(subject);
     if (m) return { kind: 'invite-received', ...(m[1] ? { name: cleanName(m[1]) } : {}) };
   }
 
+  // ⚠️ ACCEPTANCES ARE MATCHED BEFORE THE REJECT LIST, and that order was earned the hard way.
+  // The rejects are broad on purpose (`hiring`, `posted`) because they filter digests — but
+  // LinkedIn appends the person's HEADLINE to their name, so a real subject reading "Kajol
+  // Sharma (Hiring! Product Interns) accepted your invitation" was being thrown away by the
+  // digest filter. No suggestion subject contains "accepted your invitation" or "are now
+  // connected", so nothing is lost by asking the specific question first.
   for (const re of ACCEPTED_PATTERNS) {
     const m = re.exec(subject);
     if (!m) continue;
     const name = cleanName(m[1] ?? '');
     // ⚠️ NO NAME, NO EVENT. A connection with nobody's name in it cannot be shown, cannot be
     // matched to a job row, and cannot be deduplicated — it would just be a mystery row that
-    // reappears on every scan.
+    // reappears on every scan. This is also what stops "See who accepted your invitation".
     if (!name) return { kind: 'other' };
     return { kind: 'accepted', name };
   }
+
+  // Everything else: suggestions, digests, messages, profile views, job alerts.
+  if (NOT_A_CONNECTION_PATTERNS.some((re) => re.test(subject))) return { kind: 'other' };
 
   return { kind: 'other' };
 }

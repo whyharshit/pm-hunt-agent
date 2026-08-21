@@ -31,16 +31,16 @@ export const maxDuration = 60;
  *
  * There is no LinkedIn API for invitations — Connections and Invitations are closed to third
  * parties at every tier — so the plan was to read the "X accepted your invitation" email
- * (lib/linkedin-mail.ts). ⚠️ **THAT EMAIL IS NOT SENT.** Measured 2026-08-22 on two real
- * acceptances: the user invited two friends, both accepted, and no mail arrived anywhere —
- * only phone notifications, which leave no trace anything can read. LinkedIn emails that
- * category only if its EMAIL channel is switched on, and for app users it is off. A mail
- * forward was set up first and forwarded nothing, because there was nothing to forward.
+ * (lib/linkedin-mail.ts). ⚠️ **THAT EMAIL COMES FOR SOME ACCEPTANCES AND NOT OTHERS.** Measured
+ * on three real ones, 20–22 Aug 2026: two friends accepted and produced no mail anywhere, only
+ * phone notifications; a third ("Kajol accepted your invitation, explore their network") did
+ * arrive. Whatever decides that is not visible from here.
  *
- * So the input that works is LinkedIn's own export: Settings → Data privacy → Get a copy of
- * your data → Connections, a CSV of every connection WITH THE DATE IT WAS MADE
- * (lib/linkedin-csv.ts). The user's own data, offered by LinkedIn, no scraping, no cookie.
- * The mail parser stays wired for the day those notifications are enabled; it costs nothing.
+ * A tracker on a partial signal under-reports, and under-reporting reads as "nobody accepted".
+ * So the COMPLETE input is LinkedIn's own export: Settings → Data privacy → Get a copy of your
+ * data → Connections, a CSV of every connection WITH THE DATE IT WAS MADE (lib/linkedin-csv.ts)
+ * — the user's own data, no scraping, no cookie. The mail scan stays because it is real-time
+ * and free; between them, the mail catches some the same day and the export catches everything.
  *
  * Hand-logging remains first-class: the export is direction-blind (it cannot say who invited
  * whom) and it says nothing about an invitation still pending, which only the person who
@@ -228,10 +228,11 @@ export default async function LinkedInPage({
         <header className="mb-4">
           <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">LinkedIn</h1>
           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            Who was invited, and who accepted. LinkedIn has no API for invitations and, as of
-            22 Aug, does not email acceptances to this account at all — two accepted requests
-            produced phone notifications and no mail. So connections come from your own LinkedIn
-            export, and a pending invitation exists here only because you logged it.
+            Who was invited, and who accepted. LinkedIn has no API for invitations, and it
+            emails only some acceptances — of three in the last few days, one arrived by mail and
+            two came through as phone notifications only. So the mail scan runs for what it
+            catches, the export below fills in the rest, and a pending invitation exists here
+            only because you logged it.
           </p>
         </header>
 
