@@ -360,11 +360,12 @@ export type LinkedInInvite = {
   /** When LinkedIn said they accepted, off the notification's date. */
   acceptedAt?: string;
   /**
-   * Where the acceptance came from. `export` is the LinkedIn connections CSV, which is the
-   * only source that works today — LinkedIn sent NO email for two real acceptances on
-   * 2026-08-21/22, only phone notifications. See lib/linkedin-csv.ts.
+   * Where the acceptance came from, and each one exists because the one before it was
+   * incomplete: `email` catches only the acceptances LinkedIn chooses to mail, `push` is the
+   * phone relay that sees every one of them as it happens, `export` is the connections CSV
+   * that is complete but manual, `manual` is a human overruling all three.
    */
-  acceptedVia?: 'email' | 'manual' | 'export';
+  acceptedVia?: 'email' | 'manual' | 'export' | 'push';
   /** The notification that proved it — an audit trail, and it keeps re-scans idempotent. */
   messageId?: string;
   /** A discovered job row this person posted, matched by name. */

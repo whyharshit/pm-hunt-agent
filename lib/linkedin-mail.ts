@@ -126,7 +126,7 @@ const NOT_A_CONNECTION_PATTERNS: RegExp[] = [
  * was finally available to test against.
  */
 const NOT_A_PERSON_RE =
-  /^(see|who|someone|somebody|people|they|your|our|new|more|others?|everyone|\d+)\b/i;
+  /^(see|who|someone|somebody|people|they|your|our|new|more|others?|everyone|linkedin|\d+)\b/i;
 
 /** Decoration LinkedIn puts around a name in a subject line. */
 function cleanName(raw: string): string {
@@ -158,7 +158,24 @@ function cleanName(raw: string): string {
  */
 export function parseLinkedInNotification(msg: { from: string; subject: string }): LinkedInEvent {
   if (!isLinkedInSender(msg.from)) return { kind: 'other' };
-  const subject = (msg.subject ?? '').replace(/\s+/g, ' ').trim();
+  return classifyLinkedInText(msg.subject);
+}
+
+/**
+ * The same reading, on a line of text whose authenticity was established some other way.
+ *
+ * ⚠️ NO SENDER GATE HERE, SO THE CALLER MUST HAVE ONE. The email path proves authenticity with
+ * the From header; the phone relay (`/api/linkedin/notify`) proves it with a bearer secret only
+ * the user's own device holds. Anything calling this with unauthenticated text is letting a
+ * stranger write connections into the tracker.
+ *
+ * Split out on 2026-08-22 for the Android notification listener: LinkedIn emails only SOME
+ * acceptances (the "email frequency" setting is LinkedIn's discretion by default) but pushes
+ * ALL of them, so the phone sees events the mailbox never will. The wording is the same either
+ * way, so it is the same parser — not a second opinion that can drift from this one.
+ */
+export function classifyLinkedInText(raw: string): LinkedInEvent {
+  const subject = (raw ?? '').replace(/\s+/g, ' ').trim();
   if (!subject) return { kind: 'other' };
 
   // An invitation TO us first: it shares the word "invitation" with an acceptance and is not

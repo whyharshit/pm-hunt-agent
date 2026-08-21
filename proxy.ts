@@ -58,4 +58,9 @@ export const config = {
     '/api/contacts',
     '/download/:path*',
   ],
+  // ⚠️ MACHINE ENDPOINTS ARE DELIBERATELY ABSENT AND MUST STAY ABSENT. /api/whatsapp/ingest,
+  // /api/telegram/webhook and /api/linkedin/notify are called by a bridge, by Telegram and by
+  // the user's phone — none of which can answer a Basic-Auth prompt. Each carries its own
+  // bearer secret and fails CLOSED when that secret is unset, which is the right gate for a
+  // machine. Adding one of them here does not harden it; it silently breaks it.
 };

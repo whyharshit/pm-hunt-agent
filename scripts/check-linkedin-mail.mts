@@ -17,6 +17,7 @@
 import {
   isLinkedInSender,
   linkedInInviteId,
+  classifyLinkedInText,
   parseLinkedInNotification,
   personKey,
 } from '../lib/linkedin-mail';
@@ -174,6 +175,54 @@ for (const subject of [
   check(`"${subject.trim().slice(0, 40)}" yields no event`, parse(subject).kind === 'other');
 }
 check('an empty subject is ignored', parse('').kind === 'other');
+
+console.log('\n--- the phone relay: the same reading, on a push notification ---');
+// LinkedIn pushes EVERY acceptance and emails only some, so /api/linkedin/notify posts the
+// notification's title and text here. Android splits them, and LinkedIn uses both shapes — the
+// route tries `text`, then `title + text`, then `title`, and this pins why that order.
+const relay = (title: string, text: string) => {
+  for (const candidate of [text, `${title} ${text}`.trim(), title].filter(Boolean)) {
+    const event = classifyLinkedInText(candidate);
+    if (event.kind === 'accepted' && event.name) return event.name;
+  }
+  return null;
+};
+check(
+  'name in the title, verb in the text',
+  relay('Kajol Sharma', 'accepted your invitation. Explore their network') === 'Kajol Sharma',
+  String(relay('Kajol Sharma', 'accepted your invitation. Explore their network'))
+);
+check(
+  'whole sentence in the text, app name as the title',
+  relay('LinkedIn', 'Kajol accepted your invitation') === 'Kajol',
+  String(relay('LinkedIn', 'Kajol accepted your invitation'))
+);
+// ⚠️ THE ORDERING BUG THIS PREVENTS: gluing the title on first would yield "LinkedIn Kajol".
+check(
+  'the app name never becomes part of the person',
+  !String(relay('LinkedIn', 'Kajol accepted your invitation')).toLowerCase().includes('linkedin')
+);
+check(
+  'a message notification records nobody',
+  relay('Kajol Sharma', 'sent you a message: are you free tomorrow?') === null
+);
+check(
+  'a job alert records nobody',
+  relay('LinkedIn', '15 new jobs for Product Manager') === null
+);
+check('an empty notification records nobody', relay('', '') === null);
+// The email path must be unaffected by the split: it still refuses a non-LinkedIn sender.
+check(
+  'the text-only reader has NO sender gate, so the caller must have one',
+  classifyLinkedInText('Kajol accepted your invitation').kind === 'accepted'
+);
+check(
+  'while the email reader still gates on it',
+  parseLinkedInNotification({
+    from: 'someone@gmail.com',
+    subject: 'Kajol accepted your invitation',
+  }).kind === 'other'
+);
 
 console.log('\n--- one person, one row ---');
 check('spacing and case collapse', personKey('Aayush  JAIN ') === personKey('aayush jain'));

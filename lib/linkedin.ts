@@ -129,7 +129,14 @@ function postersByName(jobs: Job[]): Map<string, Job> {
 /** Merge what a notification says into whatever the row already holds. */
 function mergeAcceptance(
   existing: LinkedInInvite | null,
-  args: { name: string; at: string; messageId?: string; job?: Job }
+  args: {
+    name: string;
+    at: string;
+    messageId?: string;
+    job?: Job;
+    /** How we learned. The FIRST source to establish the acceptance keeps the credit. */
+    via?: NonNullable<LinkedInInvite['acceptedVia']>;
+  }
 ): { invite: LinkedInInvite; isNew: boolean } {
   const now = new Date().toISOString();
   const id = linkedInInviteId(args.name);
@@ -156,7 +163,7 @@ function mergeAcceptance(
     // A hand-typed name is kept: the user's spelling of somebody's name beats a subject line's.
     name: existing?.name?.trim() ? existing.name : args.name,
     acceptedAt,
-    acceptedVia: existing?.acceptedVia === 'manual' ? 'manual' : 'email',
+    acceptedVia: existing?.acceptedVia ?? args.via ?? 'email',
     messageId: args.messageId ?? existing?.messageId,
     ...(args.job
       ? { jobId: args.job.id, jobLabel: `${args.job.title} · ${companyLabel(args.job)}` }
@@ -164,6 +171,29 @@ function mergeAcceptance(
     updatedAt: now,
   };
   return { invite, isNew: !existing?.acceptedAt };
+}
+
+/**
+ * Record ONE acceptance, whoever noticed it.
+ *
+ * ⚠️ THE SINGLE WRITE PATH, used by the mailbox scan and by the phone relay
+ * (`/api/linkedin/notify`). Two sources that each did their own upsert would drift on the
+ * questions that matter — which date wins, which row an alternative spelling lands on, whether
+ * a job link is attached — and the symptom would be two rows for one person.
+ */
+export async function recordAcceptance(args: {
+  name: string;
+  /** When they accepted, as the source reports it. */
+  at: string;
+  via: NonNullable<LinkedInInvite['acceptedVia']>;
+  messageId?: string;
+}): Promise<{ invite: LinkedInInvite; isNew: boolean; job?: Job }> {
+  const id = linkedInInviteId(args.name);
+  const [existing, jobs] = await Promise.all([getLinkedInInvite(id), getRecentJobs(200)]);
+  const job = postersByName(jobs).get(personKey(args.name));
+  const { invite, isNew } = mergeAcceptance(existing, { ...args, job });
+  await saveLinkedInInvite(invite);
+  return { invite, isNew, ...(job ? { job } : {}) };
 }
 
 /**
