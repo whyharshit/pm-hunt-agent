@@ -96,9 +96,18 @@ export async function POST(request: Request) {
   // characters. That produced a cheerful 200 saying "not an acceptance", which is true and
   // useless. Now the phone is told exactly what is wrong, on the phone, where the person
   // debugging it is standing.
-  const unsubstituted = /[{[]\s*(not_title|notification|not_text|notification_title|notification_text)\s*[}\]]/i;
+  const NAMES = '(not_title|notification|not_text|notification_title|notification_text)';
   const combined = `${title} ${text}`;
-  if (unsubstituted.test(combined)) {
+  const curly = new RegExp(`\\{\\s*${NAMES}\\s*\\}`, 'i').test(combined);
+  const square = new RegExp(`\\[\\s*${NAMES}\\s*\\]`, 'i').test(combined);
+
+  // ⚠️ TWO DIFFERENT SITUATIONS THAT LOOK IDENTICAL FROM HERE, and telling them apart is the
+  // whole value of this branch. Curly braces are a real mistake — MacroDroid's picker button is
+  // drawn with `{}` but its syntax is `[]`, so people type what the button looks like. SQUARE
+  // brackets arriving literally are NOT a mistake: "Test actions" runs with no trigger behind
+  // it, so there are no trigger variables to substitute and MacroDroid passes the names
+  // through. Calling that an error sends somebody to fix a macro that is already correct.
+  if (curly) {
     return Response.json(
       {
         ok: false,
@@ -108,6 +117,18 @@ export async function POST(request: Request) {
       },
       { status: 400 }
     );
+  }
+  if (square) {
+    return Response.json({
+      ok: true,
+      recorded: null,
+      got: combined.trim().slice(0, 120),
+      note:
+        'Your syntax is right. MacroDroid only fills trigger variables when a real trigger ' +
+        'fires, so "Test actions" sends the names through unchanged — this proves the URL, the ' +
+        'header and the body are wired, and nothing else can be proven without a real ' +
+        'notification. Drop ?dry=true and let the next acceptance do it.',
+    });
   }
 
   // ⚠️ AN EMPTY NOTIFICATION IS NOT AN ERROR, IT IS WHAT A REHEARSAL LOOKS LIKE. MacroDroid's
