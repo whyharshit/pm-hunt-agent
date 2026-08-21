@@ -1,8 +1,9 @@
 import { deleteLinkedInRow, markLinkedInAccepted } from '@/lib/actions';
 import { fmtDate, fmtStamp } from '@/lib/format';
-import { getAgentRun, getLinkedInInvites, getOutreachSequences } from '@/lib/storage';
+import { getAgentRun, getJob, getLinkedInInvites, getOutreachSequences } from '@/lib/storage';
 import { runDisplayState } from '@/lib/agents';
 import { mailTimeline } from '@/lib/mail-timeline';
+import { posterName } from '@/lib/postjob';
 import { DeleteButton } from '../delete-button';
 import {
   ImportConnectionsForm,
@@ -11,7 +12,7 @@ import {
   ScanLinkedInButton,
 } from '../linkedin-form';
 import { Nav } from '../nav';
-import type { AgentRun, LinkedInInvite, OutreachSequence } from '@/lib/types';
+import type { AgentRun, Job, LinkedInInvite, OutreachSequence } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,10 +58,13 @@ function daysBetween(from: string, to: string): number | null {
 function InviteCard({
   invite,
   sequence,
+  job,
 }: {
   invite: LinkedInInvite;
   /** The email thread with the same person, when this row is tied to a job they posted. */
   sequence?: OutreachSequence;
+  /** The job row this person is matched to, read fresh so a wrong match can be inspected. */
+  job?: Job;
 }) {
   const accepted = Boolean(invite.acceptedAt);
   const waited =
@@ -147,10 +151,34 @@ function InviteCard({
         )}
       </ol>
 
-      {/* The payoff of matching by name: the connection and the application in one place. */}
+      {/* The payoff of matching by name: the connection and the application in one place.
+          ⚠️ AND THE EVIDENCE FOR THE MATCH, because the match is a GUESS. It is made on a
+          normalised name, and a notification often gives only a first name — "Kajol" matched a
+          Euronet post by someone called Kajol, which may or may not be the same human. So the
+          poster's name as the post recorded it, and a link to the post itself, sit right here:
+          the claim and the way to check it in one line. */}
       {invite.jobLabel && (
         <p className="mt-2 rounded border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
           They posted <span className="font-medium">{invite.jobLabel}</span>
+          {job && (
+            <>
+              {' · posted by '}
+              <span className="font-medium">{posterName(job.tags) || 'nobody named'}</span>
+              {job.url && (
+                <>
+                  {' · '}
+                  <a
+                    href={job.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-indigo-600 underline hover:no-underline dark:text-indigo-400"
+                  >
+                    open the post to check it is them
+                  </a>
+                </>
+              )}
+            </>
+          )}
           {sequence
             ? (() => {
                 const events = mailTimeline(sequence).filter((e) => e.kind !== 'due');
@@ -179,11 +207,23 @@ export default async function LinkedInPage({
   let invites: LinkedInInvite[] = [];
   let run: AgentRun | null = null;
   let sequences = new Map<string, OutreachSequence>();
+  let jobs = new Map<string, Job>();
   let error: string | null = null;
   try {
     [invites, run] = await Promise.all([getLinkedInInvites(300), getAgentRun('linkedin')]);
-    const jobIds = invites.map((i) => i.jobId).filter((id): id is string => Boolean(id));
-    if (jobIds.length > 0) sequences = await getOutreachSequences(jobIds);
+    const jobIds = [
+      ...new Set(invites.map((i) => i.jobId).filter((id): id is string => Boolean(id))),
+    ];
+    if (jobIds.length > 0) {
+      // Read fresh rather than trusting the label captured at link time: the point of showing
+      // this is letting a human audit the match, and an audit against a stale copy is theatre.
+      const [seqs, rows] = await Promise.all([
+        getOutreachSequences(jobIds),
+        Promise.all(jobIds.map((id) => getJob(id))),
+      ]);
+      sequences = seqs;
+      jobs = new Map(rows.filter((j): j is Job => Boolean(j)).map((j) => [j.id, j]));
+    }
   } catch (e) {
     error = (e as Error).message;
   }
@@ -282,6 +322,7 @@ export default async function LinkedInPage({
                 key={invite.id}
                 invite={invite}
                 sequence={invite.jobId ? sequences.get(invite.jobId) : undefined}
+                job={invite.jobId ? jobs.get(invite.jobId) : undefined}
               />
             ))}
           </ul>
