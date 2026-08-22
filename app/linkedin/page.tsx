@@ -1,4 +1,4 @@
-import { deleteLinkedInRow, markLinkedInAccepted } from '@/lib/actions';
+import { attachJobUrl, deleteLinkedInRow, markLinkedInAccepted } from '@/lib/actions';
 import { fmtDate, fmtStamp } from '@/lib/format';
 import { getAgentRun, getJob, getLinkedInInvites, getOutreachSequences } from '@/lib/storage';
 import { runDisplayState } from '@/lib/agents';
@@ -181,7 +181,7 @@ function InviteCard({
                   </a>
                 </>
               ) : (
-                ' · the post’s URL was never captured, so there is nothing to open — check the poster name against their profile instead'
+                ' · the post’s URL was never captured — paste the post’s link below to attach it, or check the poster name against their profile'
               )}
             </>
           ) : (
@@ -195,6 +195,27 @@ function InviteCard({
               })()
             : ' · no email thread with them'}
         </p>
+      )}
+
+      {/* The repair for "URL never captured": a contacted row cannot be re-pasted
+          (ingestHiringPost refuses), so the link is attached here, on the card that wants it. */}
+      {invite.jobLabel && job && !job.url && (
+        <form action={attachJobUrl} className="mt-2 flex flex-wrap items-center gap-2">
+          <input type="hidden" name="id" value={job.id} />
+          <input
+            name="url"
+            type="url"
+            required
+            placeholder="https://www.linkedin.com/… the post’s link"
+            className="h-7 min-w-0 flex-1 rounded border border-zinc-300 bg-white px-2 text-xs text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+          />
+          <button
+            type="submit"
+            className="h-7 rounded border border-zinc-300 bg-white px-2 text-xs font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+          >
+            Attach
+          </button>
+        </form>
       )}
 
       <div className="mt-2 flex flex-wrap items-center gap-2">

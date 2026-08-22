@@ -21,6 +21,7 @@ import {
   saveGformPrefill,
   saveJobContact,
   saveJobOutreach,
+  saveJobs,
   saveTracked,
   updateFundingStatus,
   updateJobStatus,
@@ -512,6 +513,36 @@ export async function addJobContactEmail(formData: FormData): Promise<void> {
   const draft = renderJobOutreach(job, contact);
   if (draft) await saveJobOutreach(id, draft);
 
+  revalidatePath('/paste');
+  revalidatePath('/jobs');
+}
+
+/**
+ * Attach the post's URL to a job row after the fact.
+ *
+ * Rows can be born without one — a pasted post whose text carried no link, a WhatsApp relay —
+ * and the /linkedin evidence card depends on `job.url` to let a human check a name-matched
+ * poster. Re-pasting cannot repair it: `ingestHiringPost` refuses once the row is contacted,
+ * which is precisely when the acceptance shows up and the link is wanted. So this is the door.
+ */
+export async function attachJobUrl(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  const urlRaw = formData.get('url');
+  if (typeof id !== 'string' || typeof urlRaw !== 'string') return;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(urlRaw.trim());
+  } catch {
+    return;
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return;
+
+  const job = await getJob(id);
+  if (!job) return;
+  await saveJobs([{ ...job, url: parsed.toString() }]);
+
+  revalidatePath('/linkedin');
   revalidatePath('/paste');
   revalidatePath('/jobs');
 }
