@@ -160,11 +160,15 @@ function InviteCard({
       {invite.jobLabel && (
         <p className="mt-2 rounded border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
           They posted <span className="font-medium">{invite.jobLabel}</span>
-          {job && (
+          {/* ⚠️ Each way the link can be missing SAYS SO. This box is the evidence for a match
+              made on a name, and the first time the link silently failed to render, the cause
+              (row gone? URL never captured?) was undiagnosable from a browser — which is the
+              only place this page can be seen, since prod Redis is unreachable from a shell. */}
+          {job ? (
             <>
               {' · posted by '}
               <span className="font-medium">{posterName(job.tags) || 'nobody named'}</span>
-              {job.url && (
+              {job.url ? (
                 <>
                   {' · '}
                   <a
@@ -176,8 +180,12 @@ function InviteCard({
                     open the post to check it is them
                   </a>
                 </>
+              ) : (
+                ' · the post’s URL was never captured, so there is nothing to open — check the poster name against their profile instead'
               )}
             </>
+          ) : (
+            ' · ⚠️ the job row is no longer stored (the label above is a copy kept at match time), so the post cannot be opened'
           )}
           {sequence
             ? (() => {
