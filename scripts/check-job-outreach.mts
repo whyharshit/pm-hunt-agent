@@ -384,6 +384,21 @@ check(
   ) === 'Psyliq',
   '"come Join X" reads the employer, past an earlier useless "join"'
 );
+// The real Vedantu post, 2026-08-26: the employer appears only as "for my team at Vedantu",
+// in the 📍 footer, and glued to an @ in the poster's headline. All three were misses.
+check(
+  co('🚀 I’m hiring Product Interns for my team at Vedantu!') === 'Vedantu',
+  '"for my team at X" names the employer'
+);
+check(co('📍 Vedantu | Bangalore | WFO') === 'Vedantu', 'and so does the 📍 label line');
+check(co('📍 Bangalore | WFO') === '', 'but a 📍 that pins a location is not a company');
+check(
+  co('Product intern wanted, DM me', {
+    name: POSTER,
+    info: 'AI Product@Vedantu | Ex-Yellow.ai | IITP’25',
+  }) === 'Vedantu',
+  'a headline "Role@Company" with no space after the @'
+);
 check(co('Come join our WhatsApp Group for updates') === '', 'a WhatsApp group is not an employer');
 check(co('Join Our Telegram Channel') === '', 'even fully capitalised');
 check(co('Hiring a product intern, DM me') === '', 'and otherwise: nothing');

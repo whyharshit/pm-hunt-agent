@@ -107,7 +107,13 @@ function usableEmployer(raw: string): string {
  */
 const COMPANY_LEAD_INS: RegExp[] = [
   /(?:^|\n)[ \t]*(?:company|organisation|organization|employer|firm|brand)[ \t]*[:\-][ \t]*/i,
-  /\b(?:we(?:'|’)?re\s+hiring\s+at|we\s+are\s+hiring\s+at|hiring\s+at|opening\s+at|role\s+at|position\s+at|internship\s+at|opportunity\s+at|join\s+us\s+at|join\s+our\s+team\s+at)\s+/i,
+  // The 📍/🏢 label line — "📍 Vedantu | Bangalore | WFO" (a real paste, 2026-08-26). Posts
+  // use the pin for the location at least as often, and those die on LOCATION_TELL.
+  /(?:^|\n)[ \t]*(?:📍|🏢)[ \t]*/u,
+  // `(?:my|our|the)\s+team\s+at` — "I'm hiring Product Interns for my team at Vedantu!" (the
+  // same paste) names the employer only there and in the 📍 line. "team at the Bangalore
+  // office" is safe: the run needs a capital, and the location words are rejected anyway.
+  /\b(?:we(?:'|’)?re\s+hiring\s+at|we\s+are\s+hiring\s+at|hiring\s+at|opening\s+at|role\s+at|position\s+at|internship\s+at|opportunity\s+at|join\s+us\s+at|join\s+our\s+team\s+at|(?:my|our|the)\s+team\s+at)\s+/i,
   // "Then come Join Psyliq." — a real paste (2026-08-26) that named its employer nowhere
   // else, and the reader answered "type the company". The direct object of "join" is the
   // company; the loose cases all die downstream — "Join us"/"Join our team" on the pronoun
@@ -191,8 +197,11 @@ export function companyOf(
   // Last: the recruiter's own headline, "Talent Acquisition at Acme Labs". It is a guess about
   // whose behalf they post on, so it runs only after the post's own words and is held to the
   // same agency/location filters.
+  // `@` takes OPTIONAL space: LinkedIn headlines write "AI Product@Vedantu" as one word (a
+  // real paste, 2026-08-26), and requiring whitespace read that headline as naming nothing.
+  // An email address in a headline stays safe — its domain is lowercase and fails the run.
   const info = author?.info?.split(/[|•·]/)[0] ?? '';
-  const at = /(?:\bat\b|@)\s+/i.exec(info);
+  const at = /(?:\bat\b\s+|@[ \t]*)/i.exec(info);
   const fromHeadline = at
     ? usableEmployer(NAME_RUN_START.exec(info.slice(at.index + at[0].length))?.[0] ?? '')
     : '';

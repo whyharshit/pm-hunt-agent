@@ -149,6 +149,37 @@ const psyFill = autofillPaste({ text: PSYLIQ });
 check('the company reads out of "come Join Psyliq"', psyFill.company === 'Psyliq', psyFill.company);
 check('and is flagged as read', psyFill.companyRead);
 
+console.log('\n--- the real Vedantu post, 2026-08-26: the second paste this feature refused ---');
+// Reported with the same error as Psyliq. The header parsed fine (poster, headline); the
+// company hid in three places companyOf did not look: "for my team at Vedantu", the
+// no-space "AI Product@Vedantu" headline, and the 📍 footer.
+const VEDANTU = `Nishant M
+
+  • 2nd
+
+AI Product@Vedantu | Ex-Yellow.ai | IITP’25
+
+6d •
+
+
+Follow
+
+🚀 I’m hiring Product Interns for my team at Vedantu!
+I’m looking for curious Product Interns to join my team at Vedantu in Bangalore. This is a Work From Office role, and I’m looking for immediate joiners.
+📍 Vedantu | Bangalore | WFO
+⏰ Immediate joining`;
+const ved = readPastedPost(VEDANTU);
+check('the poster is read off the header', ved.poster === 'Nishant M', ved.poster);
+check(
+  'the @-glued headline is captured',
+  ved.posterHeadline.startsWith('AI Product@Vedantu'),
+  ved.posterHeadline
+);
+check('the body starts at the post', ved.body.startsWith('🚀'), ved.body.slice(0, 30));
+const vedFill = autofillPaste({ text: VEDANTU });
+check('the company reads as Vedantu', vedFill.company === 'Vedantu', vedFill.company);
+check('and both are flagged as read', vedFill.companyRead && vedFill.posterRead);
+
 console.log('\n--- ⚠️ digits that are not timestamps do not fake a header ---');
 const COUNTS = `Priya Nair
 3 openings
