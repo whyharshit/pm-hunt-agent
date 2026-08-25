@@ -340,6 +340,34 @@ check(
 );
 check(!looksLikeRole(rolePhrase('Viamedia.ai is hiring! 🚀')), 'and a bare "X is hiring!" line');
 
+// The real Vedantu draft, 2026-08-26 — the fourth wrong-kind-of-string-in-the-role-slot bug.
+// "🚀 I'm hiring Product Interns for my team at Vedantu!" kept its whole announcement (the
+// stripper knew "we're hiring", not "I'm hiring") and its "for my team" qualifier, and the
+// v5 email read "your post about I'm hiring Product for my team roles at Vedantu".
+const VEDANTU_TITLE = '🚀 I’m hiring Product Interns for my team at Vedantu!';
+check(
+  rolePhrase(VEDANTU_TITLE) === 'Product',
+  'the Vedantu title cuts to its role',
+  rolePhrase(VEDANTU_TITLE)
+);
+check(rolePhrase('I am hiring Data Analyst Interns for our team') === 'Data Analyst', 'and "I am hiring" too');
+check(
+  rolePhrase('Immediate Opening: Product Intern') === 'Product',
+  '"Immediate" does not backtrack into a broken "I\'m" reading',
+  rolePhrase('Immediate Opening: Product Intern')
+);
+const vedantuDraft = renderJobOutreach(
+  job({ title: VEDANTU_TITLE, company: 'Vedantu', tags: [`${POSTER_TAG}Nishant M`] }),
+  { ...contact, people: [{ name: 'Nishant M' }] }
+);
+const vedantuText = vedantuDraft?.text ?? '';
+check(
+  vedantuText.includes('your post about Product roles at Vedantu'),
+  'the Vedantu row reads "Product roles at Vedantu"',
+  vedantuText.slice(0, 120)
+);
+check(!/I(?:'|’)m hiring|for my team/i.test(vedantuText), 'and the announcement never reaches the email');
+
 console.log('\n--- companyOf: who is hiring, read out of the post ---');
 const co = (text: string, author?: { name?: string; info?: string; type?: string }) =>
   companyOf(text, author ?? { name: POSTER });
@@ -446,6 +474,13 @@ for (const old of [
   'template:job-team-v4',
   'template:job-pitch-v4',
   'template:job-team-pitch-v4',
+  // v5 joined them on 2026-08-26: it kept first-person announcements and "for my team"
+  // qualifiers in the role slot, which is how "I'm hiring Product for my team roles at
+  // Vedantu" reached a draft.
+  'template:job-v5',
+  'template:job-team-v5',
+  'template:job-pitch-v5',
+  'template:job-team-pitch-v5',
 ]) {
   check(!isCurrentJobTemplate(old), `${old} is stale and must be re-rendered`);
 }

@@ -51,7 +51,13 @@ const HIRING_PREFIX_RE =
   // was titled "We're is Hiring: Prompt Engineer Generative AI". Posters write what they write,
   // and a prefix stripper that only handles grammatical English leaves the ungrammatical ones
   // in the email.
-  /^(?:we(?:'|’)?(?:re|\s+are|\s+is)?\s*)?(?:\s*(?:is|are)\s+)?(?:#?\s*(?:now|urgently|immediately|currently)\s+)?(?:#?\s*hiring|job\s+(?:alert|opening|opportunit(?:y|ies))s?|(?:immediate|urgent)\s+(?:opening|requirement|vacanc(?:y|ies))s?|vacanc(?:y|ies)|looking\s+for|apply\s+now)\s*(?:for|:|-|–|—|!|\.)*\s*/i;
+  //
+  // `i'm`/`i am` joined `we're` on 2026-08-26, off a real draft: "🚀 I'm hiring Product
+  // Interns for my team at Vedantu!" kept its whole announcement and the email read "your
+  // post about I'm hiring Product for my team roles at Vedantu". The required announcement
+  // word after the pronoun is what keeps this safe — "Immediate opening" backtracks out of
+  // the "Im" reading because "mediate opening" announces nothing.
+  /^(?:(?:we(?:'|’)?(?:re|\s+are|\s+is)?|i(?:'|’)?m|i\s+am)\s*)?(?:\s*(?:is|are)\s+)?(?:#?\s*(?:now|urgently|immediately|currently)\s+)?(?:#?\s*hiring|job\s+(?:alert|opening|opportunit(?:y|ies))s?|(?:immediate|urgent)\s+(?:opening|requirement|vacanc(?:y|ies))s?|vacanc(?:y|ies)|looking\s+for|apply\s+now)\s*(?:for|:|-|–|—|!|\.)*\s*/i;
 
 /**
  * Where a title stops being a role and starts being a qualifier.
@@ -68,7 +74,11 @@ const HIRING_PREFIX_RE =
  * `employerName` answers separately. Spaces on both sides, so a role that merely starts with
  * those letters is untouched.
  */
-const ROLE_TAIL_RE = /[|•·()\[\]{}\/,;:]|\s[-–—]\s|[–—]|\s+at\s+/i;
+// ⚠️ ` for my/our/the/your ` is a separator too, added 2026-08-26 from the same Vedantu
+// draft: "Product Interns for my team" is a role plus WHOSE team it joins, and the email
+// already addresses that person. Bare ` for ` is deliberately NOT cut - "Product Manager for
+// fintech" would lose its domain.
+const ROLE_TAIL_RE = /[|•·()\[\]{}\/,;:]|\s[-–—]\s|[–—]|\s+at\s+|\s+for\s+(?:my|our|the|your)\s+/i;
 
 /**
  * Filler a fragment can open with once its announcement prefix is gone: "we are hiring a
@@ -429,7 +439,12 @@ export function isPitchDraft(model: string): boolean {
 // opened "your post about At District roles at District" — the row's title was the post's first
 // line, "At District, …", and the head of it is a context clause, not a role. Any v4 draft whose
 // title opens that way is holding the same sentence right now, so they are re-rendered.
-export const JOB_TEMPLATE_VERSION = 'v5';
+//
+// v6, 2026-08-26: first-person announcements are stripped ("I'm hiring", not just "we're
+// hiring") and " for my/our/the/your …" is a qualifier cut. A real v5 draft read "your post
+// about I'm hiring Product for my team roles at Vedantu" — that draft, and any v5 sibling
+// with a first-person title, is holding the same sentence and must be re-rendered.
+export const JOB_TEMPLATE_VERSION = 'v6';
 
 export function isCurrentJobTemplate(model: string): boolean {
   return (
