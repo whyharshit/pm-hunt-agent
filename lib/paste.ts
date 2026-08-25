@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { isGenericEmail } from './contact';
 import { contactFromJob, enrichJobContact, isHiringInbox } from './job-contact';
 import { renderJobOutreach } from './job-outreach-template';
+import { autofillPaste } from './paste-read';
 import { headline, locationOf, POSTER_TAG } from './postjob';
 import { getJob, saveJobContact, saveJobOutreach, saveJobs } from './storage';
 import { extractUrls } from './classify';
@@ -60,8 +61,9 @@ function titleFor(text: string, roleOverride: string): string {
 
 export type PasteInput = {
   text: string;
+  /** Blank is allowed: the post itself is read first (`autofillPaste`), and only a post that never names its employer still needs this typed. */
   company: string;
-  /** Who posted it. Without a name there is nobody to greet, so no draft can be written. */
+  /** Who posted it. Blank is allowed: the LinkedIn header on the copy is read first. Without a name from either, there is nobody to greet, so no draft can be written. */
   poster?: string;
   /** Overrides the role the matcher reads out of the post. */
   role?: string;
@@ -90,12 +92,24 @@ export async function ingestHiringPost(input: PasteInput): Promise<PasteOutcome>
   const text = input.text.trim();
   if (!text) return { ok: false, message: 'Paste the post text first.' };
 
-  const company = input.company.trim();
+  // Blank company/poster fields are filled FROM THE POST — the LinkedIn header on the copy
+  // names the poster, and `companyOf` reads the employer the same way the scraped lane does.
+  // Typed values always win. `body` is the post with that header cut off, and everything
+  // below reads it instead of `text`, or the poster's own name becomes the row title and
+  // their headline's city becomes the job's location.
+  const fill = autofillPaste({ text, company: input.company, poster: input.poster });
+  const company = fill.company;
+  const poster = fill.poster;
+  const body = fill.body || text;
   if (!company) {
-    // Not a nitpick: the company fills two slots in the email body and is the only key Hunter
-    // can look a domain up by. Without it the draft would read "roles at  " and the fallback
-    // lookup could not run at all.
-    return { ok: false, message: 'Add the company name — the email names it twice and Hunter needs it.' };
+    // Still required when neither the form nor the post supplies it: the company fills two
+    // slots in the email body and is the only key Hunter can look a domain up by. Without it
+    // the draft would read "roles at  " and the fallback lookup could not run at all.
+    return {
+      ok: false,
+      message:
+        'Nothing in the post names the employer — type the company and paste again. The email names it twice and Hunter needs it.',
+    };
   }
 
   const id = pasteId(text);
@@ -113,17 +127,15 @@ export async function ingestHiringPost(input: PasteInput): Promise<PasteOutcome>
   const job: Job = {
     id,
     source: 'paste',
-    title: titleFor(text, input.role ?? ''),
+    title: titleFor(body, input.role ?? ''),
     company,
-    location: locationOf(text),
+    location: locationOf(body),
     url,
     postedAt: existing?.postedAt ?? new Date(),
     // The same tag shape the LinkedIn post sources use, so `contactFromJob` reads a pasted
     // post exactly as it reads a scraped one. One parser, not two.
-    tags: [input.poster?.trim() ? `${POSTER_TAG}${input.poster.trim()}` : '', ...postedEmails].filter(
-      Boolean
-    ),
-    description: text.slice(0, 2000),
+    tags: [poster ? `${POSTER_TAG}${poster}` : '', ...postedEmails].filter(Boolean),
+    description: body.slice(0, 2000),
     status: 'new',
   };
   await saveJobs([job]);
@@ -144,7 +156,7 @@ export async function ingestHiringPost(input: PasteInput): Promise<PasteOutcome>
           ? {
               ...e,
               foundOn: 'added by hand',
-              ...(input.poster?.trim() ? { person: input.poster.trim() } : {}),
+              ...(poster ? { person: poster } : {}),
             }
           : e
       ),
@@ -183,7 +195,7 @@ export async function ingestHiringPost(input: PasteInput): Promise<PasteOutcome>
     contact = {
       ...(contact ?? {
         id,
-        people: input.poster?.trim() ? [{ name: input.poster.trim() }] : [],
+        people: poster ? [{ name: poster }] : [],
         emails: [],
         foundAt: new Date().toISOString(),
         model: 'added by hand',
@@ -209,12 +221,21 @@ export async function ingestHiringPost(input: PasteInput): Promise<PasteOutcome>
   const personal = contact?.emails.filter((e) => !isGenericEmail(e.address)) ?? [];
   const shared = contact?.emails.filter((e) => isGenericEmail(e.address)) ?? [];
 
+  // What was READ rather than typed is said out loud, because both values end up inside the
+  // email a stranger receives — this line is the user's one chance to catch a wrong read
+  // before pressing Send.
+  const readBits = [
+    fill.companyRead ? `company “${company}”` : '',
+    fill.posterRead ? `posted by ${poster}` : '',
+  ].filter(Boolean);
+  const readNote = readBits.length ? `Read from the post: ${readBits.join(', ')}. ` : '';
+
   if (!contact || contact.emails.length === 0) {
     return {
       ok: true,
       jobId: id,
       creditSpent,
-      message: `Saved, but no address found${creditSpent ? ' (Hunter had nothing either)' : ''}. Add one by hand on the row.`,
+      message: `${readNote}Saved, but no address found${creditSpent ? ' (Hunter had nothing either)' : ''}. Add one by hand on the row.`,
     };
   }
   if (!draft) {
@@ -222,7 +243,7 @@ export async function ingestHiringPost(input: PasteInput): Promise<PasteOutcome>
       ok: true,
       jobId: id,
       creditSpent,
-      message: `Found ${contact.emails.length} address(es) via ${how}, but none of them is a person or a hiring inbox. Add the poster's name, or an address, on the row.`,
+      message: `${readNote}Found ${contact.emails.length} address(es) via ${how}, but none of them is a person or a hiring inbox. Add the poster's name, or an address, on the row.`,
     };
   }
   return {
@@ -230,7 +251,7 @@ export async function ingestHiringPost(input: PasteInput): Promise<PasteOutcome>
     jobId: id,
     creditSpent,
     message:
-      `Draft ready via ${how}: ${personal.length} personal address(es)` +
+      `${readNote}Draft ready via ${how}: ${personal.length} personal address(es)` +
       (shared.length ? `, ${shared.length} shared inbox` : '') +
       `${creditSpent ? ' · 1 Hunter credit spent' : ' · free'}. Review it below and send.`,
   };

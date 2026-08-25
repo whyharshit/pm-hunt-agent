@@ -375,7 +375,7 @@ export async function pasteHiringPost(
   const text = formData.get('text');
   const company = formData.get('company');
   if (typeof text !== 'string' || typeof company !== 'string') {
-    return { ok: false, message: 'Paste the post and name the company.' };
+    return { ok: false, message: 'Paste the post text first.' };
   }
 
   const str = (k: string) => {

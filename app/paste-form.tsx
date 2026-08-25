@@ -11,9 +11,12 @@ const field =
 /**
  * Paste a hiring post you found on LinkedIn yourself.
  *
- * Company is the only required field beside the post. It is not a formality: the email names
- * the company twice, and it is the sole key Hunter can resolve a domain by when the post
- * carries no address.
+ * Only the post itself is required. Company and poster are read OUT OF the paste when left
+ * blank (the LinkedIn header on the copy names the poster; `companyOf` reads the employer),
+ * and the result line says what was read so a wrong guess is caught before Send. The fields
+ * stay as overrides — a typed value always wins. A post that never names its employer still
+ * needs the company typed: the email names it twice, and it is the sole key Hunter can
+ * resolve a domain by when the post carries no address.
  */
 export function PasteForm() {
   const [state, formAction, pending] = useActionState(pasteHiringPost, initialState);
@@ -25,12 +28,12 @@ export function PasteForm() {
           name="text"
           required
           rows={8}
-          placeholder="Paste the whole post here, including any email address or 'DM me' line…"
+          placeholder="Paste the whole post here — keep the name & headline block at the top (that's how the poster and company are read) and any email address or 'DM me' line…"
           className="w-full rounded border border-zinc-300 bg-white p-2 text-xs leading-relaxed text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600"
         />
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <input name="company" required placeholder="Company (required)" className={field} />
-          <input name="poster" placeholder="Who posted it, e.g. Ananya Rao" className={field} />
+          <input name="company" placeholder="Company (blank = read from the post)" className={field} />
+          <input name="poster" placeholder="Who posted it (blank = read from the post)" className={field} />
           <input name="role" placeholder="Role (optional, overrides what's read from the post)" className={field} />
           <input name="url" placeholder="Link to the post (optional)" className={field} />
         </div>
