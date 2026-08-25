@@ -1,4 +1,4 @@
-import { addJobContactEmail, deleteJobRow } from '@/lib/actions';
+import { addJobContactEmail, deleteJobRow, writeJobDraft } from '@/lib/actions';
 import { addressLooksLikePerson, isGenericEmail } from '@/lib/contact';
 import { isHiringInbox } from '@/lib/job-contact';
 import { isTeamDraft } from '@/lib/job-outreach-template';
@@ -238,16 +238,63 @@ function PastedRow({
             </button>
           </form>
 
-          {draft && (
+          {draft ? (
             <JobDraftBlock
               id={job.id}
               draft={draft}
               greeted={teamDraft ? 'team' : greeted}
               summary="Edit the email"
             />
+          ) : (
+            <HandDraftForm job={job} />
           )}
         </>
       )}
     </li>
+  );
+}
+
+/**
+ * Write the email yourself when the machine declined to.
+ *
+ * A draft is only auto-written when there is somebody to greet — a named person, or a
+ * recognised hiring inbox. A row that has neither used to be a dead end: the address was
+ * visible and the Send button was not, because Send and the editor both ride on a draft
+ * existing. This form is the way out — one save and the row behaves like any other
+ * (editable, sendable, and marked hand-edited so no re-render ever overwrites it).
+ */
+function HandDraftForm({ job }: { job: Job }) {
+  return (
+    <details className="mt-3">
+      <summary className="cursor-pointer text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">
+        Write the email by hand
+      </summary>
+      <form action={writeJobDraft} className="mt-2 space-y-1">
+        <input type="hidden" name="id" value={job.id} />
+        <input
+          type="text"
+          name="subject"
+          defaultValue={`Application: ${job.title}`}
+          placeholder="Subject"
+          className="w-full rounded border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
+        />
+        <textarea
+          name="text"
+          rows={12}
+          placeholder={'Hi <their name>,\n\nI saw your post about …'}
+          className="w-full resize-y rounded border border-zinc-200 bg-white px-3 py-2 font-mono text-xs leading-relaxed text-zinc-700 placeholder:text-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 dark:placeholder:text-zinc-600"
+        />
+        <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+          Open with “Hi &lt;their name&gt;,” — or “Hi team,” for a shared inbox — the send paths
+          check the greeting against the address.
+        </p>
+        <button
+          type="submit"
+          className="h-7 rounded border border-zinc-300 bg-white px-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          Save draft
+        </button>
+      </form>
+    </details>
   );
 }

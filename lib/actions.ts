@@ -256,6 +256,41 @@ export async function updateJobDraft(formData: FormData): Promise<void> {
   revalidatePath('/jobs');
 }
 
+/**
+ * Write the application BY HAND on a row the machine declined to draft.
+ *
+ * The renderer refuses when there is nobody to greet — no named person, no recognised hiring
+ * inbox — and until this existed such a row was a dead end: the Send button and the editor
+ * both render only when a draft exists, so the user could see the address on the row and
+ * still had no way to mail it (the Psyliq row, 2026-08-26). A human writing the email
+ * themselves IS the resolution of "nobody to greet": they know who they are writing to.
+ *
+ * Creation only: an existing draft is edited through `updateJobDraft`, which guards the
+ * sent-record. The model carries `+edited` from birth — the flag every re-renderer and bulk
+ * re-draft respects, because machine copy must never overwrite what a human wrote.
+ */
+export async function writeJobDraft(formData: FormData): Promise<void> {
+  const id = formData.get('id');
+  const text = formData.get('text');
+  const subject = formData.get('subject');
+  if (typeof id !== 'string' || typeof text !== 'string') return;
+  if (!text.trim()) return; // an empty body is never an intended email
+
+  const [job, existing] = await Promise.all([getJob(id), getJobOutreach(id)]);
+  if (!job || existing) return;
+
+  await saveJobOutreach(id, {
+    id,
+    subject:
+      typeof subject === 'string' && subject.trim() ? subject.trim() : `Application: ${job.title}`,
+    text,
+    generatedAt: new Date().toISOString(),
+    model: `hand-written${EDITED_JOB_MODEL_SUFFIX}`,
+  });
+  revalidatePath('/paste');
+  revalidatePath('/jobs');
+}
+
 /** Drop a hand-edit and go back to the template, so an edit is never a one-way door. */
 export async function resetJobDraft(formData: FormData): Promise<void> {
   const id = formData.get('id');
