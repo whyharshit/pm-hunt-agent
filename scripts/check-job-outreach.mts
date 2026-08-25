@@ -375,6 +375,17 @@ check(
   'a contraction is not a company, however capitalised',
   'the reported post title itself offered "We\'re" as the employer'
 );
+// The real Psyliq post, 2026-08-26: the employer is named ONLY as the direct object of
+// "Join", and its first "join" ("join our Live world data internship") comes earlier — so
+// this pins both the "join X" lead-in and the every-occurrence loop at once.
+check(
+  co(
+    'Looking for Interns to join our Live world data internship in Data Analyst.\nThen come Join Psyliq.\nComment Interested and send your Cv here intern@psyliq.com'
+  ) === 'Psyliq',
+  '"come Join X" reads the employer, past an earlier useless "join"'
+);
+check(co('Come join our WhatsApp Group for updates') === '', 'a WhatsApp group is not an employer');
+check(co('Join Our Telegram Channel') === '', 'even fully capitalised');
 check(co('Hiring a product intern, DM me') === '', 'and otherwise: nothing');
 
 console.log('\n--- employerName: the rows already in storage ---');

@@ -134,6 +134,21 @@ const selfFill = autofillPaste({ text: SELF });
 check('the poster is read', selfFill.poster === 'Kajol', selfFill.poster);
 check('the company stays empty rather than becoming the poster', selfFill.company === '', selfFill.company);
 
+console.log('\n--- the real Psyliq post, 2026-08-26: the first paste this feature refused ---');
+// Reported by the user with the exact error: "Nothing in the post names the employer".
+// The employer is the direct object of "Join", two lines after a useless "join our …".
+const PSYLIQ = `Looking for Interns to join our Live world data internship in Data Analyst, Data scientist, Power BI and many more.
+
+If you or any of your contact are in need to gain practical experience, Want to gain hands on experience how industrial level projects are being made, Then come Join Psyliq.
+
+Comment Interested and send your Cv here intern@psyliq.com
+Let's Learn and Practice.`;
+const psy = readPastedPost(PSYLIQ);
+check('no header, so no poster invented', psy.poster === '' && psy.body === PSYLIQ, psy.poster);
+const psyFill = autofillPaste({ text: PSYLIQ });
+check('the company reads out of "come Join Psyliq"', psyFill.company === 'Psyliq', psyFill.company);
+check('and is flagged as read', psyFill.companyRead);
+
 console.log('\n--- ⚠️ digits that are not timestamps do not fake a header ---');
 const COUNTS = `Priya Nair
 3 openings

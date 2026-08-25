@@ -55,7 +55,7 @@ export function posterName(tags: string[]): string {
  * so "roles at Sharma Manpower Solutions" is a different wrong answer to the same question.
  */
 const NOT_AN_EMPLOYER =
-  /^(us|we|our|my|the|this|a|an|your|their|india|remote|home|office|scale|speed|pace|present|least|most|all|any|it|work|team|teams|company|startup|startups|client|clients|multiple|various|leading|top|reputed|mnc|mncs|immediate|urgent)$/i;
+  /^(us|we|our|my|the|this|a|an|your|their|india|remote|home|office|scale|speed|pace|present|least|most|all|any|it|work|team|teams|company|startup|startups|client|clients|multiple|various|leading|top|reputed|mnc|mncs|immediate|urgent|group|groups|channel|channels|community|whatsapp|telegram|discord|linkedin|facebook|instagram|hands)$/i;
 
 const AGENCY_TELLS =
   /\b(consultanc|consulting|staffing|recruit|placement|manpower|hr\s*solutions|talent\s*solutions|hiring\s*solutions|services\s*(?:pvt|private)|job\s*portal|jobs?)\b/i;
@@ -108,6 +108,11 @@ function usableEmployer(raw: string): string {
 const COMPANY_LEAD_INS: RegExp[] = [
   /(?:^|\n)[ \t]*(?:company|organisation|organization|employer|firm|brand)[ \t]*[:\-][ \t]*/i,
   /\b(?:we(?:'|’)?re\s+hiring\s+at|we\s+are\s+hiring\s+at|hiring\s+at|opening\s+at|role\s+at|position\s+at|internship\s+at|opportunity\s+at|join\s+us\s+at|join\s+our\s+team\s+at)\s+/i,
+  // "Then come Join Psyliq." — a real paste (2026-08-26) that named its employer nowhere
+  // else, and the reader answered "type the company". The direct object of "join" is the
+  // company; the loose cases all die downstream — "Join us"/"Join our team" on the pronoun
+  // guard, "Join WhatsApp Group" on the platform words, "join hands" on the lowercase run.
+  /\b(?:come\s+(?:and\s+)?)?join\s+/i,
 ];
 
 /** "X is hiring", "X is looking for" — the name sits BEFORE the keyword, so it is read backwards. */
@@ -160,22 +165,27 @@ export function companyOf(
   const poster = author?.name?.trim().toLowerCase() ?? '';
   const notThePoster = (name: string) => Boolean(name) && name.toLowerCase() !== poster;
 
+  // ⚠️ EVERY occurrence of a pattern is tried, not just the first. The Psyliq post
+  // (2026-08-26) opens "join our Live world data internship" and only later says "come Join
+  // Psyliq" — a first-match-only loop tested the pronoun, got nothing usable, and never
+  // reached the occurrence that carried the answer. Each candidate still has to survive
+  // usableEmployer, so trying more of them admits nothing looser.
   for (const lead of COMPANY_LEAD_INS) {
-    const m = lead.exec(content);
-    if (!m) continue;
-    const after = content.slice(m.index + m[0].length);
-    const found = usableEmployer(NAME_RUN_START.exec(after)?.[0] ?? '');
-    if (notThePoster(found)) return found;
+    for (const m of content.matchAll(new RegExp(lead.source, 'gi'))) {
+      const after = content.slice(m.index + m[0].length);
+      const found = usableEmployer(NAME_RUN_START.exec(after)?.[0] ?? '');
+      if (notThePoster(found)) return found;
+    }
   }
 
   for (const trailer of COMPANY_TRAILERS) {
-    const m = trailer.exec(content);
-    if (!m) continue;
-    // Only the line the keyword is on, so a name run cannot reach back across a newline into
-    // the previous sentence.
-    const before = content.slice(0, m.index).split('\n').at(-1) ?? '';
-    const found = usableEmployer(NAME_RUN_END.exec(before)?.[0] ?? '');
-    if (notThePoster(found)) return found;
+    for (const m of content.matchAll(new RegExp(trailer.source, 'gi'))) {
+      // Only the line the keyword is on, so a name run cannot reach back across a newline
+      // into the previous sentence.
+      const before = content.slice(0, m.index).split('\n').at(-1) ?? '';
+      const found = usableEmployer(NAME_RUN_END.exec(before)?.[0] ?? '');
+      if (notThePoster(found)) return found;
+    }
   }
 
   // Last: the recruiter's own headline, "Talent Acquisition at Acme Labs". It is a guess about
