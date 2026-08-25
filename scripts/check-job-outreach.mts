@@ -541,7 +541,12 @@ check(
   'that pairing is what queued "Hi Paolo," to booking@weroad.com'
 );
 check(isHiringInbox('careers@acme.com'), 'careers@ is recognised as a hiring inbox');
+// The real Psyliq paste, 2026-08-26: the post said "send your Cv here intern@psyliq.com"
+// and the row got no draft because only the LONG forms (internship@) were on the list.
+check(isHiringInbox('intern@psyliq.com'), 'and so is intern@ — the address a real post gave');
+check(isHiringInbox('internships@acme.com'), 'and internships@ still is');
 check(!isHiringInbox('ananya@acme.com'), 'a personal address is not a hiring inbox');
+check(!isHiringInbox('international@acme.com'), 'but intern must not swallow international@');
 
 // 4. Whose domain is it? These are the live probe results from the incident, not invented
 //    strings: "The/Nudge Institute" really did return these near-miss candidates.

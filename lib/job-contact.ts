@@ -32,7 +32,10 @@ import type { ContactEmail, ContactPerson, Job, JobContact } from './types';
  * posting gave. It still cannot receive an email that opens "Hi Ananya," so the draft greets
  * nobody by name, and reaching one at all is gated (see lib/job-autosend.ts).
  */
-const HIRING_INBOX = /^(careers?|jobs?|hiring|recruit(ing|ment)?|hr|talent|internships?|apply|applications?|resume|cv|joinus|work(with|for)us)@/i;
+// `intern(s|ships?)?` covers intern@/interns@/internship@/internships@ — the list knew only
+// the long forms, and `intern@psyliq.com` (a real paste, 2026-08-26) got no draft because
+// the address the post gave was "not a hiring inbox".
+const HIRING_INBOX = /^(careers?|jobs?|hiring|recruit(ing|ment)?|hr|talent|intern(s|ships?)?|apply|applications?|resume|cv|joinus|work(with|for)us)@/i;
 
 export function isHiringInbox(address: string): boolean {
   return HIRING_INBOX.test(address);
