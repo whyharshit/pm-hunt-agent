@@ -18,11 +18,10 @@
 const BOLD = new RegExp(
   [
     // Bullet labels: only when followed by a colon, so "Startup" in ordinary prose is safe.
-    // Listed first so their digits ("0 to 1 Products") cannot be claimed by a number rule.
-    '(?:AI & Product|GTM|0 to 1 Products|Startup|Execution)(?=:)',
+    '(?:AI\\/ML|Applied ML|AI Agent Ops|Startup|Execution)(?=:)',
     // The places he has actually worked, named in the bullets. All of them, or the one that
     // is left plain reads like an afterthought next to its bolded neighbours.
-    'Omnidel\\.ai|mylynk\\.ai|Lovng|IIT Kharagpur',
+    'Fitsol|UnoJobs|Omnidel\\.ai|Quiet|IIT Kharagpur',
     // Money, including the Indian forms the funding line produces: ₹7.5L+, Rs 65 Cr, $12M.
     '(?:₹|\\$|£|€|Rs\\.?\\s?)\\s?\\d[\\d,.]*\\s?(?:Cr|crore|L|lakh|K|M|B|bn|mn)?\\+?',
     // Counts carrying a "+": 2,000+, 1,000+, 10k+.
@@ -51,7 +50,7 @@ export function boldSegments(text: string): Segment[] {
     const start = m.index;
     const end = start + m[0].length;
     // A match that occupies a whole line by itself is a signature or a heading, not
-    // emphasis. Without this the "IIT Kharagpur" under "Best, Shivansh" comes out bold,
+    // emphasis. Without this the "IIT Kharagpur" under "Best, Harshit" comes out bold,
     // which reads like a letterhead rather than someone signing off.
     const ownsTheLine =
       (start === 0 || text[start - 1] === '\n') && (end === text.length || text[end] === '\n');

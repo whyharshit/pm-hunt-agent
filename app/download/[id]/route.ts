@@ -18,7 +18,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   const tracked = await getTracked(id);
   const company = tracked?.company ? safeFilename(tracked.company) : 'company';
-  const filename = `Shivansh_Chaudhary_${company}.pdf`;
+  const filename = `Harshit_Verma_${company}.pdf`;
   const bytes = Buffer.from(stored.base64, 'base64');
 
   return new Response(new Uint8Array(bytes), {

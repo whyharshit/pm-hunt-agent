@@ -1,22 +1,26 @@
 # User Profile (answers driving the build)
 
-_Updated 2026-05-25_
+_Updated 2026-08-27_
 
 | | |
 |---|---|
-| **Region target** | Global / remote-anywhere |
+| **Region target** | Global / remote-anywhere, India on-site OK |
 | **Notifications channel** | Telegram bot |
-| **Bandwidth** | 20+ hrs/week (3-week compressed plan) |
-| **Loving Room relationship** | Works/interns there — real, recent work experience to mine for resume + case study |
-| **Email** | hello@lovingroom.co |
-| **Time zone** | _TBD — ask user when sourcing roles_ |
+| **Bandwidth** | TBD — ask user |
+| **Email** | harshiitkgp@kgpian.iitkgp.ac.in |
+| **Time zone** | IST (GMT+5:30) |
 
 ## What this changes in the plan
 
-- Job sources prioritized: RemoteOK, Wellfound, HN "Who's Hiring", YC Jobs, Toptal, Crossover, GitLab/Automattic/Buffer style remote-first orgs. Skip Internshala (regional). Add LinkedIn site-search for "remote anywhere".
-- Notifications: Telegram bot first (faster + free + lives on phone). Email digest as a later add-on if needed.
-- Timeline compressed to 3 weeks given 20+ hrs/wk:
-  - **Week 1:** Prereqs → Scaffold → Module 4 (tracker) → Module 1 (discovery bot) live
-  - **Week 2:** Module 2 (application assistant) → portfolio case study #1 (Loving Room) → start applying daily
-  - **Week 3:** Module 3 (outreach) → mock interviews ramp → iterate based on conversion data
-- Loving Room is the leading edge of the resume — frame the user as "Product/Operations contributor at Loving Room (events/venue platform), 2025–2026" and case-study what they actually did there.
+- Target roles narrowed to **AI/ML engineering, applied ML/data, and AI agent/automation**
+  internships — matches the Fitsol / UnoJobs / Omnidel.ai background on the resume. PM/growth/ops
+  patterns were removed from `lib/filters.ts` and `lib/job-category.ts` on 2026-08-27 (was
+  previously tuned for a PM-track candidate).
+- Job sources: same board list as before (RemoteOK, Wellfound, HN "Who's Hiring", YC Jobs, etc.)
+  — only the title/role filter changed, not the sources.
+- Notifications: Telegram bot (needs its own bot token — see `docs/PREREQS.md`; do NOT reuse the
+  token committed in `DEPLOY.md`, it belonged to the previous owner and is already public).
+- Outreach templates (`lib/outreach-template.ts`, `lib/job-outreach-template.ts`,
+  `lib/followup-template.ts`) were rewritten with Harshit's own experience bullets and sign-off.
+  Numbers in these bullets are Harshit's own resume figures — if anything changes on the resume,
+  update the bullets to match; do not let a model paraphrase the figures.

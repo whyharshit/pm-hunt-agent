@@ -19,7 +19,7 @@ type RemoteOkJob = {
 
 export async function fetchRemoteOk(): Promise<Job[]> {
   const res = await fetch('https://remoteok.com/api', {
-    headers: { 'User-Agent': 'pm-hunt-agent/1.0 (contact: hello@lovingroom.co)' },
+    headers: { 'User-Agent': 'pm-hunt-agent/1.0 (contact: harshiitkgp@kgpian.iitkgp.ac.in)' },
     next: { revalidate: 0 },
   });
   if (!res.ok) throw new Error(`RemoteOK fetch failed: ${res.status}`);

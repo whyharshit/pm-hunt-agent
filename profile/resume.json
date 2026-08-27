@@ -1,140 +1,156 @@
 {
-  "name": "Shivansh Chaudhary",
-  "email": "shivanshchaudhary.iitkgp@gmail.com",
-  "phone": "+91 7409928071",
+  "name": "Harshit Verma",
+  "email": "harshiitkgp@kgpian.iitkgp.ac.in",
+  "phone": "",
   "location": "Kharagpur, India",
   "links": {
-    "linkedin": "https://www.linkedin.com/in/shivansh-chaudhary"
+    "linkedin": ""
   },
-  "summary": "B.Arch. undergraduate at IIT Kharagpur (graduating 2028) with three back-to-back remote internships in Growth, GTM and Founder's Office roles. Builds AI/automation pipelines (n8n, web scraping, LinkedIn signal mining) to drive outbound lead generation and qualification. Comfortable with Python/SQL, ML basics, and case-based business strategy.",
+  "summary": "B.Arch. undergraduate at IIT Kharagpur (graduating 2028) with back-to-back internships in AI/ML engineering, applied ML, and AI agent operations. Builds end-to-end ML pipelines, LLM-based extraction/reranking systems, and automation tooling. Comfortable with Python/SQL, classical ML and deep learning, and RAG/LLM systems.",
   "education": [
     {
       "degree": "B.Arch.",
       "institution": "Indian Institute of Technology, Kharagpur",
       "graduationYear": 2028,
-      "score": "8.12/10 CGPA"
+      "score": "8.09/10 CGPA"
     },
     {
       "degree": "AISSCE (Science)",
-      "institution": "Shivalik Ganges Public School",
+      "institution": "Delhi Public School, Motihari",
       "graduationYear": 2022,
-      "score": "95.60%"
+      "score": "89.40%"
     },
     {
       "degree": "AISSE",
-      "institution": "Shivalik Ganges Public School",
+      "institution": "Delhi Public School, Motihari",
       "graduationYear": 2020,
-      "score": "97.20%"
+      "score": "93.60%"
     }
   ],
   "experience": [
     {
-      "role": "Founder's Office Intern",
-      "company": "mylynk.ai",
-      "location": "Bangalore (Remote)",
-      "dates": "Feb '26 - Apr '26",
+      "role": "AI Agent Operations Intern",
+      "company": "Omnidel.ai",
+      "location": "Kolkata (Remote)",
+      "dates": "May '26 - Present",
       "bullets": [
-        "Built AI GTM agents using n8n to track 10,000+ weekly hiring signals across LinkedIn and other job platforms for outbound lead generation.",
-        "Built LinkedIn Pain Signal Watcher that analyzed 500+ HR leader posts and reduced manual efforts by 70% via automated outreach drafting.",
-        "Built a Hiring Stress Signal Detector for repeated leadership changes and funding-led hiring surges to prioritize 200+ high-intent accounts."
+        "Engineered an automated Fireflies API pipeline to capture and process 250+ Google Meet transcripts for downstream task extraction across client workflows.",
+        "Captured 170 of 179 discussed tasks at 95% recall accuracy by architecting an LLM-based extraction pipeline converting transcripts into structured JSON.",
+        "Devised a fuzzy-matching pipeline with LLM reranking to reconcile extracted tasks against existing entries, eliminating duplicate task creation at scale.",
+        "Orchestrated a Telegram BotFather approval workflow enabling one-tap human validation before pushing confirmed tasks to Trello via API integrations."
       ]
     },
     {
-      "role": "Founder's Office Intern",
-      "company": "Rise Global Education",
-      "location": "Mumbai (Remote)",
-      "dates": "Oct '25 - Jan '26",
+      "role": "Applied Machine Learning Intern",
+      "company": "UnoJobs",
+      "location": "Noida (Remote)",
+      "dates": "Jan '26 - Feb '26",
       "bullets": [
-        "Utilized web scraping tools to extract and qualify data for 500+ leads, contributing to a 25% increase in pipeline for outreach campaigns.",
-        "Conducted industry research on 12+ competitors, enabling data-driven decisions that improved business planning accuracy by 15%.",
-        "Designed and executed targeted email campaigns for 300+ prospects, resulting in a 15% improvement in response rates and engagement."
+        "Architected a scalable filter-then-rank pipeline using SQL filters, vector search, and skill-graph matching to surface top-50 candidates from 1M+ applicants.",
+        "Reduced average time-to-hire to 7 days via a production-ready filter-then-rank pipeline using SQL filters, cosine similarity, and skill-graph matching.",
+        "Engineered an LLM reranking layer that distilled 50 candidates into a curated shortlist of 10-15 through evidence-grounded relevance scoring.",
+        "Stored relational data and 1,536-dimensional embeddings in Supabase (pgvector), enabling efficient SQL + vector search across the full candidate pool."
       ]
     },
     {
-      "role": "Growth and Strategy Intern",
-      "company": "Lovingroom",
-      "location": "Amsterdam (Remote)",
-      "dates": "Dec '24 - Sep '25",
+      "role": "AI Engineer Intern",
+      "company": "Fitsol",
+      "location": "Gurugram (Remote)",
+      "dates": "Dec '25 - May '26",
       "bullets": [
-        "Executed expansion into 11 European and 3 USA cities, diversified into 5+ genres, and optimized for PMF through data-driven scaling strategies.",
-        "Automated artist conversation and qualification using n8n, increasing lead qualification rate by 60% and reducing processing time by 80%.",
-        "Automated the artist outreach process using Phantoms, reducing manual effort by 70% and significantly improving lead acquisition efficiency."
+        "Engineered an E2E ESG intelligence pipeline for a B2B Climate-Tech SaaS, extracting sustainability disclosures and predicting corporate carbon emissions.",
+        "Predicted emissions at log-R2 = 0.78 by stacking ensemble ML models atop a HistGradientBoosting baseline (log-R2 = 0.72) across 35+ engineered ESG predictors.",
+        "Structured 1800+ BRSR & ARs into a sector-wise ESG knowledge base via an end-to-end intelligence pipeline using Python, LLMs & schema-constrained JSON.",
+        "Delivered an enterprise emission prediction dashboard spanning 2000+ firms across 40+ sectors, enabling real-time ESG benchmarking across stakeholders."
       ]
     }
   ],
   "positionsOfResponsibility": [
     {
-      "role": "Core Organising Team Member",
-      "organization": "Spring Fest, IIT Kharagpur",
-      "dates": "Sep '24 - Jan '25",
+      "role": "Design & Media Head",
+      "organization": "Kshitij, IIT Kharagpur's Annual Techno-Management Festival",
+      "dates": "",
       "bullets": [
-        "Worked with a team of 38 Core Organizing Team Members, expanding Spring Fest's reach to 1000+ colleges across the country.",
-        "Solely responsible for conducting the Nation Wide Prelims (Hitch Hike) in Lucknow with a YoY increase in participants of 52%.",
-        "Spearheaded the Delhi sponsorship drive, garnering funds via alumni contribution worth INR 7.5 Lakh+, a 30% YoY increase.",
-        "Ensured smooth execution of Tell a Tale, SF Idols and Banter Bout at SN Bose Auditorium and raised INR 2 Lakhs through partnership deals.",
-        "Led and coordinated a team of 50 Associate members, expanding fest reach to 1000+ colleges and publishing 200+ media articles across India.",
-        "Secured and hosted a USA-based artist for International Carnival entirely through international grants, without paying a performance fee."
+        "Led branding, creative design, and media operations for Kshitij, IIT Kharagpur's flagship techno-management festival."
       ]
     }
   ],
   "competitions": [
     {
-      "title": "Gold Medalist — Case-a-Blanca (Supply Chain Case Competition)",
-      "organization": "Indian Institute of Management, Bangalore",
-      "date": "May '24",
+      "title": "First Runner-Up — CityScape: Lucknow Urban Mobility Case Competition",
+      "organization": "Indian Institute of Management, Lucknow",
+      "date": "Jan '25 - Feb '25",
       "bullets": [
-        "Designed end-to-end supply chain visibility dashboards, enhancing operational resilience by mitigating geopolitical risks and market losses.",
-        "Developed logistic-regression-based risk models to reduce unplanned downtime by 21 days through vulnerability management programs."
+        "Secured 2nd place among 2,000+ participants by proposing an AI-driven multimodal urban mobility framework integrating EV infrastructure and reforms.",
+        "Engineered a YOLOv8-based traffic monitoring system with Automatic License Plate Recognition (ALPR) for real-time vehicle detection and violation tracking.",
+        "Designed a dynamic traffic signal optimization system adapting to real-time traffic density to improve intersection throughput across urban corridors."
       ]
     }
   ],
   "projects": [
     {
-      "name": "Diabetes Prediction using Support Vector Machines (SVMs)",
+      "name": "Swiggy Delivery-Time Prediction | End-to-End MLOps Pipeline",
       "type": "Self Project",
-      "dates": "Sep '24 - Oct '24",
+      "dates": "Jun '25 - Aug '25",
       "bullets": [
-        "Developed a diabetes prediction pipeline using the Pima dataset (768 samples, 8 features) with preprocessing, scaling, modeling and evaluation.",
-        "Tuned an RBF-kernel SVM via exhaustive grid search optimization, achieving cross-validation accuracy of 82% and ROC-AUC score of 0.86.",
-        "Evaluated on the test set: 81.5% accuracy, 78% recall, 80% precision, and 0.79 F1-score — demonstrating reliable model performance."
+        "Achieved 3.13-min MAE and R2 of 0.83 using a stacked ensemble trained on 15+ engineered predictive delivery features from 45000+ Swiggy orders.",
+        "Architected a preprocessing workflow across 20+ raw features using sk-learn ColumnTransformer, PowerTransformer, encoding, and scaling for regression.",
+        "Productionized the pipeline with a 5-tool MLOps stack (FastAPI, Docker, DVC, MLflow, GitHub Actions), enabling end-to-end deployment and model versioning."
+      ]
+    },
+    {
+      "name": "Spotify Hybrid Music Recommendation Engine",
+      "type": "Self Project",
+      "dates": "Aug '25 - Oct '25",
+      "bullets": [
+        "Developed a hybrid ranking model blending content and collaborative similarity scores across 9K+ users and 30K songs, balancing relevance and diversity.",
+        "Engineered features using TF-IDF, one-hot encoding, frequency encoding, and feature scaling via sk-learn ColumnTransformer for content-based filtering.",
+        "Processed listening data using Dask and constructed a 30K x 962K sparse user-item matrix with SciPy CSR for efficient collaborative filtering at scale."
+      ]
+    },
+    {
+      "name": "RAG-Based YouTube Q&A System using LangChain & Gemini",
+      "type": "Self Project",
+      "dates": "Nov '25 - Dec '25",
+      "bullets": [
+        "Engineered a retrieval pipeline with Recursive Character Text Splitting and vector embeddings over 1,000+ transcript lines, enabling rapid semantic search.",
+        "Architected a RAG pipeline using LangChain, Gemini API, and ChromaDB with prompt templates and system prompts to improve overall answer relevance.",
+        "Integrated the pipeline into a Streamlit application enabling fully live interactive Q&A with sub-3s response latency across chunked YouTube transcripts."
       ]
     }
   ],
   "skills": {
-    "languagesAndSoftware": ["C/C++", "Python", "SQL", "Office", "UI/UX"],
+    "languagesAndSoftware": ["C/C++", "Python", "SQL", "JavaScript"],
+    "aiMl": ["Machine Learning", "Deep Learning", "NLP", "LLMs", "RAG", "LangChain", "LangGraph", "TensorFlow", "Scikit-learn", "Keras"],
+    "librariesAndFrameworks": ["STL", "Pandas", "NumPy", "Matplotlib", "Streamlit", "Tailwind CSS", "Bootstrap", "Seaborn"],
+    "databasesAndVectorStores": ["MySQL", "ChromaDB", "Supabase"],
+    "developerTools": ["Git/GitHub", "Docker", "Selenium", "Jupyter Notebook", "VS Code", "Codex", "Claude Code", "OpenClaw", "Antigravity"],
+    "visualization": ["Power BI", "Tableau"],
     "coursework": {
-      "stanford": ["CS229", "CS230"],
-      "mit": ["Probability & Statistics", "Linear Algebra"],
-      "iitGuwahati": ["Winter Consulting"],
-      "coursera": [
-        "Financial Markets",
-        "TVM",
-        "Trading Strategies",
-        "Machine Learning",
-        "Business Strategy",
-        "Financial Statements",
-        "Technical Analysis"
-      ],
-      "selfStudy": [
-        "Valuation",
-        "Corporate Finance",
-        "JC Hull — Options, Futures and Other Derivatives",
-        "Equity Research"
-      ]
-    },
-    "automationAndGtm": ["n8n", "Phantoms (PhantomBuster)", "Web scraping", "LinkedIn signal mining", "Email campaigns"]
+      "stanford": ["CS229"],
+      "campusX": ["100 Days of Machine Learning", "100 Days of Deep Learning"],
+      "freeCodeCamp": ["Production RAG (LangChain)", "Vector DBs"]
+    }
   },
   "awards": [
-    "2nd Runners Up — D24, 24-hour Design Time challenge, Dept. of Architecture and Regional Planning, IIT Kharagpur",
-    "95th percentile among 12 lakh+ JEE Mains 2023 candidates, All India Rank under 57K (top 5%)",
-    "All India Rank under 23K among 2.5 lakh qualified candidates, JEE Advanced 2023"
+    "1st Position — Hindi Elocution, Open IIT, IIT Kharagpur (50+ participants)",
+    "Gold — Inter-College D24 (24-hour architecture design challenge), twice, IIT Kharagpur / Jadavpur University / IIEST Shibpur"
+  ],
+  "entrepreneurial": [
+    {
+      "role": "Co-Founder",
+      "organization": "Quiet (privacy-first AI layer for lawyers and therapists)",
+      "dates": "May '26 - Present",
+      "bullets": [
+        "Converted 3 early ICP-fit therapists into paid pilot users at $19/mo, conducting 40+ customer discovery interviews across 2 profession verticals (therapy & law).",
+        "Eliminated third-party breach risk for workflows by engineering a privacy-first AI note-taking tool using WhisperKit & Ollama for fully on-device transcription."
+      ]
+    }
   ],
   "extraCurricular": [
-    { "category": "Sports", "detail": "Member of NSO Hockey at IIT Kharagpur; participates in track-and-field events as part of institute sports programs." },
-    { "category": "Cultural", "detail": "Bronze-winning Choreography team, Inter-Hall General Championship 2024-25, representing Azad Hall of Residence." },
-    { "category": "Social", "detail": "Volunteered in Social Campaign Prabal, spreading breast cancer awareness among 3000+ women for early detection." },
-    { "category": "Art", "detail": "Gold-winning Rangoli design team for Azad Hall in Illumination." },
-    { "category": "Debate", "detail": "Participated in National Level Debate Competition on women representation, Public Policy and Governance Society." },
-    { "category": "Design", "detail": "Gold-winning Illumination design team for Azad Hall; contributed AutoCAD designs and finalized the design theme." }
+    { "category": "Design", "detail": "Led branding, creative design, and media operations as Design & Media Head for Kshitij, IIT Kharagpur's Annual Techno-Management Festival." },
+    { "category": "Elocution", "detail": "Achieved 1st Position in Hindi Elocution at Open IIT, IIT Kharagpur, a pan-institute literary competition with 50+ participants." },
+    { "category": "Architecture", "detail": "Won Gold at Inter-College D24 (24-hour architecture design challenge) twice, jointly conducted by IIT Kharagpur, Jadavpur University & IIEST Shibpur." },
+    { "category": "Illumination", "detail": "Collaborated in a team to craft and assemble 5,000+ lamps, contributing to JCB Hall's 3rd-place finish at Illumination 2025, IIT KGP's flagship event." }
   ]
 }

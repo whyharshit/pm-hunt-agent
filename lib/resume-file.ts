@@ -5,16 +5,15 @@ import path from 'node:path';
  * The resume PDF attached to every outreach email (user's instruction 2026-08-09).
  *
  * ⚠️ THE FILENAME IS WHAT THE FOUNDER SEES in their mail client, so it is deliberately a
- * clean `Shivansh_Chaudhary_Resume.pdf` rather than the source file's name, which arrived
- * as `Shivansh_Ch_Resume.pdf.pdf`.
+ * clean `Harshit_Verma_Resume.pdf`.
  *
  * Read from disk at send time rather than bundled as base64: the file is ~152KB and would
  * bloat every serverless function that transitively imports the mailer. `process.cwd()` is
  * the project root in a Vercel function, and the read is cached after the first send.
  */
 
-const RESUME_PATH = ['profile', 'Shivansh_Chaudhary_Resume.pdf'];
-export const RESUME_FILENAME = 'Shivansh_Chaudhary_Resume.pdf';
+const RESUME_PATH = ['profile', 'Harshit_Verma_Resume.pdf'];
+export const RESUME_FILENAME = 'Harshit_Verma_Resume.pdf';
 
 let cached: Buffer | null = null;
 

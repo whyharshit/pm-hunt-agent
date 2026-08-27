@@ -79,7 +79,7 @@ const PATTERNS: Array<[JobCategory, RegExp]> = [
   ['data', /\bdata\b|\banalytics\b|\banalyst\b|\bbusiness intelligence\b|\bai\b|\bmachine learning\b|\bml\b/i],
   [
     'engineering',
-    /\bengineer(ing)?\b|\bdeveloper\b|\bsoftware\b|\bsde\b|\bfull[- ]?stack\b|\bfront[- ]?end\b|\bback[- ]?end\b|\bdevops\b|\bqa\b/i,
+    /\bengineer(ing)?\b|\bdeveloper\b|\bsoftware\b|\bsde\b|\bfull[- ]?stack\b|\bfront[- ]?end\b|\bback[- ]?end\b|\bdevops\b|\bqa\b|\bfde\b|\bforward deployed\b/i,
   ],
 ];
 

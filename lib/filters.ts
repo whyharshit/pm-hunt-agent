@@ -11,43 +11,21 @@ import type { Job } from './types';
 export const INTERN_PATTERNS: RegExp[] = [
   /\bintern\b/i,
   /\binternship\b/i,
-  /\bapm\b/i,
-  /\bassociate product\b/i,
   /\bgraduate (program|trainee|scheme|rotational)\b/i,
   /\brotational\b/i,
-  /\bfounder'?s office\b/i,
-  /\bchief of staff\b/i,
   /\btrainee\b/i,
 ];
 
 // At least one role keyword must appear in the TITLE. See isProductOrOps.
+// Narrowed 2026-08-27 to AI/ML, data, and software-engineering roles for this profile
+// (AI Engineer / Applied ML / AI Agent Ops background) — PM/growth/ops/VC patterns dropped.
 export const ROLE_PATTERNS: RegExp[] = [
-  /\bproduct\b/i,
-  /\bstrategy\b/i,
-  /\bstrategic\b/i,
-  /\boperations?\b/i,
-  /\bops\b/i,
-  /\bgrowth\b/i,
-  /\bfounder'?s? office\b/i,
-  /\bchief of staff\b/i,
-  /\bprogram manager\b/i,
-  /\bbusiness analyst\b/i,
-  /\bpartnerships?\b/i,
-  /\bgo-?to-?market\b/i,
-  /\bgtm\b/i,
-  /\bbiz ops\b/i,
-  /\bapm\b/i,
   // Data (2026-08-05). Deliberately NOT a bare /\bdata\b/ — that admits "Data Entry
   // Intern", which is clerical work, not analysis. ("Data Engineer" used to be excluded
   // here too; since 2026-08-07 it passes on the SWE patterns below, by design.)
   /\bdata (analyst|analytics|science|scientist|engineer)\b/i,
   /\banalytics\b/i,
   /\bbusiness intelligence\b/i,
-  // VC (2026-08-05).
-  /\bventure capital\b/i,
-  /\bvc\b/i,
-  /\bventures?\b/i,
-  /\binvestment (analyst|associate|team|intern)\b/i,
   // AI (2026-08-05). Originally scoped to AI-adjacent NON-engineering roles (AI product,
   // AI research, AI ops) because "AI Engineer" died on the engineer hard-reject. That
   // reject is gone as of 2026-08-07, so AI/ML engineering titles now pass too.
@@ -57,6 +35,16 @@ export const ROLE_PATTERNS: RegExp[] = [
   /\bml\b/i,
   /\bgen(erative)?[\s-]?ai\b/i,
   /\bllm\b/i,
+  // Forward Deployed Engineer (2026-08-27) — often abbreviated "FDE" with no "engineer"
+  // spelled out in the title at all, so the generic /\bengineer(ing)?\b/ below won't
+  // always catch it on its own.
+  /\bfde\b/i,
+  /\bforward deployed\b/i,
+  // Growth Engineer (2026-08-27) — a software/AI role at growth-stage companies, not the
+  // marketing-flavoured "growth" role dropped in the PM-filter narrowing above. Explicit
+  // here so it still matches titles that write "Growth Eng" without the full word.
+  /\bgrowth engineer(ing)?\b/i,
+  /\bgrowth eng\b/i,
   // Software engineering (2026-08-07, explicit user decision: "add SWE posts also in all
   // sources, don't reject them"). Until now `engineer`/`developer` were HARD-REJECTED, so
   // every SWE posting died in the title bank regardless of source.

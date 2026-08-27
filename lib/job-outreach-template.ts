@@ -218,8 +218,8 @@ export function jobSubject(job: Job): string {
   // It reads as something typed in a hurry by a person, which is the point of it, and a
   // tidy-up to sentence case would quietly undo that. The smiley is theirs too.
   return linkedIn
-    ? 'saw your linkedIn post, shivansh from IIT Kgp :)'
-    : 'saw your post, shivansh from IIT Kgp :)';
+    ? 'saw your linkedIn post, harshit from IIT Kgp :)'
+    : 'saw your post, harshit from IIT Kgp :)';
 }
 
 /**
@@ -238,16 +238,16 @@ export function jobSubject(job: Job): string {
 const EXPERIENCE_BULLETS = [
   "A few things I've worked on:",
   '',
-  '- Omnidel.ai: Built agentic AI products, including one that cut quote turnaround time by 85%.',
-  '- mylynk.ai: Built AI-agent GTM systems generating 2,000+ monthly sales signals across 386 BFSI accounts.',
-  '- FabTech: Shipped web products end-to-end for SMB clients, from discovery to launch and optimisation.',
-  '- Lovng: Founding team member of a live-events marketplace operating across 14 cities.',
-  "- IIT KGP: I've led large 50+ members teams for Spring Fest, driving sponsorships ₹7.5L+ and scaling outreach to 1000+ colleges nationwide.",
+  '- Fitsol: Engineered an ESG intelligence pipeline predicting corporate carbon emissions across 2,000+ firms with a stacked ensemble model (log-R² 0.78).',
+  '- UnoJobs: Built a filter-then-rank hiring pipeline using SQL filters, vector search, and LLM reranking, cutting average time-to-hire to 7 days across 1M+ applicants.',
+  '- Omnidel.ai: Shipped an automated Fireflies-to-Trello task-extraction pipeline processing 250+ meeting transcripts at 95% recall.',
+  '- Quiet: Co-founded a privacy-first AI note-taking tool for therapists and lawyers, converting early users into paid pilots.',
+  "- IIT KGP: First runner-up among 2,000+ participants at IIM Lucknow's CityScape case competition; led design & media ops for Kshitij, IIT Kharagpur's flagship fest.",
 ];
 
 /** The line that introduces the candidate. Shared for the same reason the bullets are. */
 const INTRO =
-  "I'm Shivansh, a pre-final year student at IIT Kharagpur. I've worked across AI, product, growth and startups, and enjoy solving ambiguous problems and taking them from 0 to 1.";
+  "I'm Harshit, a student at IIT Kharagpur. I've worked across AI/ML, data, and early-stage startups, and enjoy solving ambiguous problems and taking them from 0 to 1.";
 
 /**
  * Build the application email, or null when there is nobody to greet.
@@ -317,11 +317,11 @@ export function renderJobOutreach(
     // and simply stops at the team. "to  and learn alongside the engineering team" is the
     // shape of email that gets deleted on sight.
     company
-      ? `I'd love to bring this mix of AI, product and execution to ${company} and learn alongside ${teamPhrase(job.title)}.`
-      : `I'd love to bring this mix of AI, product and execution to ${teamPhrase(job.title)}.`,
+      ? `I'd love to bring this mix of AI/ML and execution to ${company} and learn alongside ${teamPhrase(job.title)}.`
+      : `I'd love to bring this mix of AI/ML and execution to ${teamPhrase(job.title)}.`,
     '',
     'Best,',
-    'Shivansh Chaudhary',
+    'Harshit Verma',
     'IIT Kharagpur',
   ].join('\n');
 
@@ -391,7 +391,7 @@ function renderInternshipPitch(
     `I'd love to explore if there's an opportunity to contribute to ${team} as an intern.`,
     '',
     'Best,',
-    'Shivansh Chaudhary',
+    'Harshit Verma',
     'IIT Kharagpur',
   ].join('\n');
 

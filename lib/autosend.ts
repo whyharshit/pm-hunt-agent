@@ -48,10 +48,7 @@ import type {
 
 /** Never outreach to the user's own addresses — they are test recipients. */
 const NEVER_SEND_TO = [
-  'shivanshch001@gmail.com',
-  'hr.lovng@gmail.com',
-  'shivanshchaudhary.iitkgp@gmail.com',
-  'hello@lovingroom.co',
+  'harshiitkgp@kgpian.iitkgp.ac.in',
 ];
 
 const FOUNDER_TITLE = /\b(co-?founder|founder|ceo|chief executive)\b/i;

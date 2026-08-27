@@ -1,29 +1,29 @@
 {
   "_comment": "Your reusable application answers. The Google Form pre-filler reads this to fill forms. Leave a field as \"\" if you don't have one; blank fields are simply left for you to fill by hand. Update anytime.",
 
-  "fullName": "Shivansh Chaudhary",
-  "firstName": "Shivansh",
-  "lastName": "Chaudhary",
+  "fullName": "Harshit Verma",
+  "firstName": "Harshit",
+  "lastName": "Verma",
 
-  "email": "shivanshchaudhary.iitkgp@gmail.com",
-  "phone": "+917409928071",
-  "whatsapp": "+917409928071",
+  "email": "harshiitkgp@kgpian.iitkgp.ac.in",
+  "phone": "",
+  "whatsapp": "",
 
-  "city": "Roorkee",
+  "city": "Kharagpur",
   "country": "India",
   "timezone": "IST (GMT+5:30)",
   "bestTimeToCall": "",
 
-  "linkedin": "https://www.linkedin.com/in/shivansh-ch",
+  "linkedin": "",
   "portfolio": "",
   "github": "",
   "resumeLink": "",
   "workSamplesLink": "",
 
-  "currentRole": "Product Management Intern",
-  "currentCompany": "",
-  "yearsExperience": "1+ year across product, growth and AI internships",
-  "education": "B.Arch, IIT Kharagpur (expected 2028), CGPA 7.64/10",
+  "currentRole": "AI Agent Operations Intern",
+  "currentCompany": "Omnidel.ai",
+  "yearsExperience": "1+ year across AI/ML, applied ML, and AI agent ops internships",
+  "education": "B.Arch, IIT Kharagpur (expected 2028), CGPA 8.09/10",
 
   "workAuthorization": "Indian citizen",
   "canWorkUsHours": "Yes",
@@ -33,12 +33,12 @@
   "expectedStipend": "",
   "englishProficiency": "Fluent",
 
-  "whyThisRole": "I want an early-stage product/ops role where I can own outcomes end to end. I've shipped 0-to-1 agentic AI products at Omnidel.ai, led product discovery at Freightnaut, and driven multi-city growth for a live-events marketplace — I turn ambiguity into a build-ready roadmap and move fast.",
-  "aboutMe": "Shivansh, a B.Arch student at IIT Kharagpur and a product/growth generalist. I've interned across product (Freightnaut), agentic AI (Omnidel.ai) and GTM (mylynk.ai), and I'm on the founding team of Lovng, a live-events marketplace. I ship fast and automate the boring parts.",
+  "whyThisRole": "I want a role where I can ship real ML/AI systems end to end. I've built emissions-prediction pipelines at Fitsol, a filter-then-rank hiring pipeline at UnoJobs, and an LLM task-extraction pipeline at Omnidel.ai — I turn messy, ambiguous data problems into production pipelines and move fast.",
+  "aboutMe": "Harshit, a B.Arch student at IIT Kharagpur and an AI/ML engineering generalist. I've interned across AI engineering (Fitsol), applied ML (UnoJobs), and AI agent operations (Omnidel.ai), and I'm co-founder of Quiet, a privacy-first AI note-taking tool. I ship fast and automate the boring parts.",
   "hearAboutUs": "",
 
   "gender": "",
   "pronouns": "",
 
-  "additional": "IIT Kharagpur B.Arch. PM & product-discovery intern at Freightnaut (0-to-1 Export Intelligence tool, 15+ exporter interviews). Product engineering intern at Omnidel.ai — shipped agentic AI products in production (cut quote turnaround 85%). Growth engineering intern at mylynk.ai — AI-agent GTM engine surfacing 2,000+ BFSI signals/month. Founding team at Lovng — live-events marketplace across 14 cities; lifted lead qualification 60%, tripled bookable inventory. Gold medalist, M&A Masterminds case competition (IIT Delhi). 1st place, Inter-College D24 architecture challenge. Mentored 350+ JEE aspirants at Physics Wallah."
+  "additional": "IIT Kharagpur B.Arch. AI Engineer intern at Fitsol (ESG carbon-emissions prediction pipeline, log-R2 0.78 across 2,000+ firms). Applied ML intern at UnoJobs (filter-then-rank hiring pipeline over 1M+ applicants, cut time-to-hire to 7 days). AI Agent Ops intern at Omnidel.ai (LLM transcript-to-task extraction pipeline, 95% recall across 250+ meetings). Co-founder, Quiet — privacy-first on-device AI note-taking tool for therapists and lawyers. First runner-up, CityScape Urban Mobility Case Competition (IIM Lucknow, 2,000+ participants). Design & Media Head, Kshitij (IIT Kharagpur's flagship techno-management festival)."
 }

@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
    * more tightly buys nothing and risks missing a route later.
    */
   outputFileTracingIncludes: {
-    "/*": ["./profile/Shivansh_Chaudhary_Resume.pdf"],
+    "/*": ["./profile/Harshit_Verma_Resume.pdf"],
   },
 };
 

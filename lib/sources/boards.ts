@@ -18,7 +18,7 @@ import type { Job } from '../types';
  */
 
 const FETCH_TIMEOUT_MS = 15_000;
-const UA = 'pm-hunt-agent/1.0 (contact: hello@lovingroom.co)';
+const UA = 'pm-hunt-agent/1.0 (contact: harshiitkgp@kgpian.iitkgp.ac.in)';
 
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url, {

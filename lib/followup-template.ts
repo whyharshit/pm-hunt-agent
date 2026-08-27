@@ -35,7 +35,7 @@ export function followUpSubject(subject: string): string {
  */
 function jobBody(step: 1 | 2 | 3, greeted: string, rawCompany: string): string {
   const hi = `Hi ${firstName(greeted)},`;
-  const sign = ['Best,', 'Shivansh'];
+  const sign = ['Best,', 'Harshit'];
   // ⚠️ THE SEQUENCE'S COMPANY CAN BE A PERSON'S NAME OR A PLACEHOLDER. It is copied off the
   // job row at send time, and every row sent before 2026-08-20 copied the LinkedIn poster's
   // own name into it (see employerName in lib/postjob.ts). Those sequences are still live and
@@ -109,7 +109,7 @@ function trustedCompany(raw: string): string {
 
 function body(step: 1 | 2 | 3, greeted: string, company: string): string {
   const hi = `Hi ${firstName(greeted)},`;
-  const sign = ['Best,', 'Shivansh'];
+  const sign = ['Best,', 'Harshit'];
 
   if (step === 1) {
     return [
