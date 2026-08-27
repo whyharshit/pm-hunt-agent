@@ -55,6 +55,7 @@ import type { ContactEmail, Job, JobContact, JobOutreach } from './types';
 /** Never outreach to the user's own addresses — they are test recipients. */
 const NEVER_SEND_TO = [
   'harshiitkgp@kgpian.iitkgp.ac.in',
+  'harshitatiitkgp@gmail.com',
 ];
 
 /** Applications go stale fast. Matches the window lib/job-prepare.ts drafts within. */
