@@ -5,6 +5,7 @@ import { firstName, isEditedDraft, renderOutreachTemplate } from './outreach-tem
 import { createPacer } from './pace';
 import { readResumePdf } from './resume-file';
 import { bouncedAddresses, mailedAddresses, recordInitialSend } from './sequence';
+import { logFounderOutreach } from './sheets';
 import { MAX_AGE_DAYS } from './sources/techcrunch';
 import {
   getFundingContacts,
@@ -402,6 +403,7 @@ export async function runAutoSend(
         isFounder: c.isFounder,
         title: c.title,
       });
+      await logFounderOutreach({ sentAt, company: c.item.company, to: c.to, url: c.item.url });
     } catch (e) {
       result.failed.push({ company: c.item.company, to: c.to, error: (e as Error).message });
     }

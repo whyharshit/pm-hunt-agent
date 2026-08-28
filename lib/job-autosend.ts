@@ -15,6 +15,7 @@ import { createPacer } from './pace';
 import { companyLabel, employerName, posterName } from './postjob';
 import { readResumePdf } from './resume-file';
 import { bouncedAddresses, mailedAddresses, recordInitialSend } from './sequence';
+import { logJobApplication } from './sheets';
 import {
   getJobContacts,
   getJobOutreaches,
@@ -456,6 +457,13 @@ export async function runJobAutoSend(
         to: c.to,
         greeted: c.greeted,
         foundOn: c.foundOn,
+      });
+      await logJobApplication({
+        sentAt,
+        company: companyLabel(c.job),
+        title: c.job.title,
+        to: c.to,
+        url: c.job.url,
       });
     } catch (e) {
       result.failed.push({ company: companyLabel(c.job), to: c.to, error: (e as Error).message });
