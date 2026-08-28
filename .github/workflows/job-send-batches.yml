@@ -1,0 +1,24 @@
+name: Job outreach send batches
+
+# Runs 9x/day, ~2 hours apart, 06:30-22:30 IST (01:00-17:00 UTC), so JOB_SEND_MAX_PER_DAY
+# (currently 10/run) spreads to ~90/day across the day instead of one burst. Vercel's own
+# cron is maxed at 2 jobs (Hobby plan) — discover + funding already use both — so this rides
+# on GitHub Actions instead, hitting the same endpoint the funding cron uses.
+#
+# Deliberately does NOT set autosend=true, so this only runs the job-application pipeline
+# (prepare + send + linkedin scan). Founder cold-outreach stays on its own once-daily schedule
+# inside the real Vercel cron, unaffected by this.
+on:
+  schedule:
+    - cron: '0 1,3,5,7,9,11,13,15,17 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  send-batch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger job-send batch
+        run: |
+          curl -sf -X GET "https://pm-hunt-agent.vercel.app/api/funding?jobs=true" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -w "\nHTTP %{http_code}\n"
