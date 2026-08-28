@@ -62,6 +62,16 @@ export function firstName(full: string): string {
 }
 
 /**
+ * Signature lines appended after every "Best, Harshit ..." sign-off, shared by the founder
+ * outreach and job outreach templates so a link update never has to happen in two places.
+ */
+export const SIGNATURE_LINKS = [
+  'Portfolio: https://harshit-verma-brown.vercel.app/',
+  'GitHub: https://github.com/whyharshit',
+  'Projects: https://web-cyan-one-pytx6cl84c.vercel.app/ , https://webapp-eta-ten-58.vercel.app/',
+];
+
+/**
  * Build the email. Returns null when there is no founder name: the template opens "Hi
  * {{Name}}," and a cold email that opens "Hi there" to a founder is worse than not sending
  * — so the caller is told to leave the row alone rather than being handed a degraded draft.
@@ -100,6 +110,7 @@ export function renderOutreachTemplate(
     'Best,',
     'Harshit',
     'IIT Kharagpur',
+    ...SIGNATURE_LINKS,
   ].join('\n');
 
   return {

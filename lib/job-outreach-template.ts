@@ -1,6 +1,6 @@
 import { categoryLabel } from './job-category';
 import { isPitchTarget } from './filters';
-import { firstName } from './outreach-template';
+import { firstName, SIGNATURE_LINKS } from './outreach-template';
 import { employerName, isRoleText } from './postjob';
 import type { Job, JobContact, JobOutreach } from './types';
 
@@ -323,6 +323,7 @@ export function renderJobOutreach(
     'Best,',
     'Harshit Verma',
     'IIT Kharagpur',
+    ...SIGNATURE_LINKS,
   ].join('\n');
 
   return {
@@ -393,6 +394,7 @@ function renderInternshipPitch(
     'Best,',
     'Harshit Verma',
     'IIT Kharagpur',
+    ...SIGNATURE_LINKS,
   ].join('\n');
 
   return {
