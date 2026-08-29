@@ -68,7 +68,11 @@ export function firstName(full: string): string {
 export const SIGNATURE_LINKS = [
   'Portfolio: https://harshit-verma-brown.vercel.app/',
   'GitHub: https://github.com/whyharshit',
-  'Projects: https://web-cyan-one-pytx6cl84c.vercel.app/ , https://webapp-eta-ten-58.vercel.app/',
+  // Two URLs on one line get merged into a single broken hyperlink by some mail clients'
+  // auto-linkers (the digits in each vercel subdomain, e.g. "84c" / "-58", make the linker
+  // swallow both URLs as one span) — so each project link gets its own line instead.
+  'Project 1: https://web-cyan-one-pytx6cl84c.vercel.app/',
+  'Project 2: https://webapp-eta-ten-58.vercel.app/',
 ];
 
 /**
